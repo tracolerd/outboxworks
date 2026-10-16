@@ -1,4 +1,6 @@
-# OutboxWorks
+<p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0B1723,50:0F766E,100:111827&height=190&section=header&text=OutboxWorks&fontSize=42&fontColor=F1F5F9&fontAlignY=38&animation=fadeIn&desc=Planned%20webhook%20delivery%20with%20observable%20retries%20and%20explicit%20failure%20states&descAlignY=61&descSize=15" alt="OutboxWorks animated project banner" width="100%" />
+</p>
 
 **Reliable webhook delivery with observable retries and explicit failure states.**
 
@@ -108,3 +110,4 @@ This project is independently developed and maintained by Nurul Faiyaz. AI-assis
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
