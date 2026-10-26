@@ -3,21 +3,23 @@ import path from 'path';
 import { z } from 'zod';
 import { pool } from './db.js';
 import { validateWebhookUrl } from './ssrf.js';
+import { requireAdmin, requireProducer } from './auth.js';
+import { encryptSecret } from './crypto.js';
+import { config } from './config.js';
 export const app = express();
 app.use(express.json());
-// Serve static files for the Dashboard
 app.use(express.static(path.join(process.cwd(), 'public')));
 const createEndpointSchema = z.object({
   url: z.string().url(),
-  secret: z.string().min(16, 'Secret must be at least 16 characters for HMAC'),
+  secret: z.string().min(16),
 });
 const createEventSchema = z.object({
   endpoint_id: z.string().uuid(),
   payload: z.record(z.string(), z.any()),
   idempotency_key: z.string().min(1),
 });
-// --- Existing POST Routes ---
-app.post('/endpoints', async (req, res) => {
+// Admin Route: Create Endpoint (Encrypts secret)
+app.post('/endpoints', requireAdmin, async (req, res) => {
   try {
     const { url, secret } = createEndpointSchema.parse(req.body);
     const isSafeUrl = await validateWebhookUrl(url);
@@ -25,14 +27,16 @@ app.post('/endpoints', async (req, res) => {
       res.status(400).json({ error: 'URL violates SSRF security policy' });
       return;
     }
-    const result = await pool.query('INSERT INTO endpoints (url, secret) VALUES ($1, $2) RETURNING id', [url, secret]);
+    const encryptedSecret = encryptSecret(secret, config.ENCRYPTION_KEY);
+    const result = await pool.query('INSERT INTO endpoints (url, secret) VALUES ($1, $2) RETURNING id', [url, encryptedSecret]);
     res.status(201).json({ id: result.rows[0].id, url });
   } catch (error) {
     if (error instanceof z.ZodError) res.status(400).json({ error: error.issues });
     else res.status(500).json({ error: 'Internal Server Error' });
   }
 });
-app.post('/events', async (req, res) => {
+// Producer Route: Enqueue Event
+app.post('/events', requireProducer, async (req, res) => {
   try {
     const { endpoint_id, payload, idempotency_key } = createEventSchema.parse(req.body);
     const client = await pool.connect();
@@ -66,12 +70,8 @@ app.post('/events', async (req, res) => {
     else res.status(500).json({ error: 'Internal Server Error' });
   }
 });
-app.post('/deliveries/:id/replay', async (req, res) => {
-  const auth = req.headers['authorization'];
-  if (auth !== `Bearer ${process.env.ADMIN_SECRET || 'dev-admin-secret'}`) {
-    res.status(401).json({ error: 'Unauthorized: Invalid Admin Secret' });
-    return;
-  }
+// Admin Route: Replay
+app.post('/deliveries/:id/replay', requireAdmin, async (req, res) => {
   const { id } = req.params;
   const client = await pool.connect();
   try {
@@ -92,8 +92,8 @@ app.post('/deliveries/:id/replay', async (req, res) => {
     client.release();
   }
 });
-// --- New GET Routes for Dashboard ---
-app.get('/api/endpoints', async (req, res) => {
+// Admin Routes: Dashboard APIs (Secrets omitted intentionally)
+app.get('/api/endpoints', requireAdmin, async (req, res) => {
   try {
     const result = await pool.query('SELECT id, url, created_at FROM endpoints ORDER BY created_at DESC');
     res.json(result.rows);
@@ -101,7 +101,7 @@ app.get('/api/endpoints', async (req, res) => {
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
-app.get('/api/deliveries', async (req, res) => {
+app.get('/api/deliveries', requireAdmin, async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT d.id, d.status, d.attempt_count, d.updated_at, ep.url 
@@ -115,4 +115,3 @@ app.get('/api/deliveries', async (req, res) => {
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
-

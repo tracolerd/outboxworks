@@ -3,6 +3,10 @@ import assert from 'node:assert';
 import http from 'http';
 import { app } from './api.js';
 import { pool } from './db.js';
+import { config } from './config.js';
+
+const adminHeaders = { 'Content-Type': 'application/json', 'Authorization': `Bearer ` };
+const producerHeaders = { 'Content-Type': 'application/json', 'Authorization': `Bearer ` };
 test('Durable Enqueue API & Idempotency Pipeline', async (t) => {
   // Setup isolated test server
   const server = http.createServer(app);
@@ -13,7 +17,7 @@ test('Durable Enqueue API & Idempotency Pipeline', async (t) => {
   await t.test('1. Should create a new endpoint', async () => {
     const res = await fetch(`${baseUrl}/endpoints`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: adminHeaders,
       body: JSON.stringify({ url: 'https://example.com/webhook', secret: 'test_super_secret_key_123' })
     });
     assert.strictEqual(res.status, 201);
@@ -26,7 +30,7 @@ test('Durable Enqueue API & Idempotency Pipeline', async (t) => {
   await t.test('2. Should enqueue event and create pending delivery', async () => {
     const res = await fetch(`${baseUrl}/events`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: adminHeaders,
       body: JSON.stringify({ endpoint_id: endpointId, payload: { msg: 'hello' }, idempotency_key: idempotencyKey })
     });
     assert.strictEqual(res.status, 201);
@@ -38,7 +42,7 @@ test('Durable Enqueue API & Idempotency Pipeline', async (t) => {
   await t.test('3. Should reject invalid endpoint_id', async () => {
     const res = await fetch(`${baseUrl}/events`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: adminHeaders,
       body: JSON.stringify({ endpoint_id: '00000000-0000-0000-0000-000000000000', payload: { msg: 'hello' }, idempotency_key: 'another-key' })
     });
     assert.strictEqual(res.status, 400);
@@ -46,7 +50,7 @@ test('Durable Enqueue API & Idempotency Pipeline', async (t) => {
   await t.test('4. Should handle duplicate idempotency key correctly (Idempotent 200 OK)', async () => {
     const res = await fetch(`${baseUrl}/events`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: adminHeaders,
       body: JSON.stringify({ endpoint_id: endpointId, payload: { msg: 'different payload but same key' }, idempotency_key: idempotencyKey })
     });
     assert.strictEqual(res.status, 200);
@@ -62,3 +66,4 @@ test('Durable Enqueue API & Idempotency Pipeline', async (t) => {
   server.close();
   await pool.end();
 });
+

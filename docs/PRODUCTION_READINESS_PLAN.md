@@ -27,3 +27,9 @@
 - [x] Implemented version-controlled migration system (schema_migrations).
 - [x] Refactored db.ts to enforce max connection pool limits and timeouts.
 - [x] Tested migration integrity within isolated database transactions.
+## Phase 3: Authentication, Authorization, and Secret Management
+- [x] Implemented Role-Based Access Control (Admin vs Producer).
+- [x] Secured all endpoints with crypto.timingSafeEqual Bearer tokens.
+- [x] Applied AES-256-GCM authenticated encryption at rest for endpoint secrets.
+- [x] Added ENCRYPTION_KEY validation and separated it from the database.
+- [x] Redacted secrets from GET endpoints.

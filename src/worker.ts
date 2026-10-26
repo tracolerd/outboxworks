@@ -1,6 +1,8 @@
 ﻿import { pool } from './db.js';
 import { sendWebhook } from './sender.js';
 import { generateSignature } from './signer.js';
+import { decryptSecret } from './crypto.js';
+import { config } from './config.js';
 const POLL_INTERVAL_MS = 2000;
 const LOCK_TIMEOUT_MINUTES = 2;
 const MAX_ATTEMPTS = 5; // Bounded retry limit
@@ -43,7 +45,8 @@ export async function processNextDelivery(): Promise<boolean> {
     const { payload, url, secret } = eventResult.rows[0];
     const payloadStr = JSON.stringify(payload);
     // 3. Send Webhook
-    const signatureHeader = generateSignature(payloadStr, secret);
+    const decryptedSecret = decryptSecret(secret, config.ENCRYPTION_KEY);
+    const signatureHeader = generateSignature(payloadStr, decryptedSecret);
     const result = await sendWebhook(url, payloadStr, signatureHeader, 5000);
     // 4. Record Attempt
     await client.query(`
@@ -99,3 +102,4 @@ async function startWorker() {
 if (process.argv[1] === import.meta.filename || process.argv[1].endsWith('worker.ts')) {
   startWorker();
 }
+
