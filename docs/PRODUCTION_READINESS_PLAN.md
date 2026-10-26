@@ -38,3 +38,7 @@
 - [x] Replaced etch with http.request using a custom dns.lookup to prevent DNS rebinding attacks.
 - [x] Ensured redirects are explicitly blocked during webhook delivery.
 - [x] Fixed API integration tests 401 Unauthorized issues.
+## Phase 5: Worker Reliability and Delivery Semantics
+- [x] Refactored worker to decouple database transactions from external HTTP requests.
+- [x] Enforced short-lived transactions to prevent connection pool exhaustion.
+- [x] Implemented graceful shutdown flag (isShuttingDown) for the worker loop.
