@@ -10,16 +10,19 @@ export interface DeliveryResult {
   errorReason: string | null;
 }
 
-const restrictedRanges = [
-  'unspecified',
-  'broadcast',
-  'multicast',
-  'linkLocal',
-  'loopback',
-  'private',
-  'carrierGradeNat',
-  'ipv4Mapped',
-];
+/**
+ * Return true only for globally routable unicast IP addresses. Blocking every
+ * non-unicast range also covers IPv6 unique-local, reserved, transition and
+ * mapped ranges as ipaddr.js classifies them, rather than maintaining a fragile
+ * partial denylist.
+ */
+export function isPublicUnicastIp(ip: string): boolean {
+  try {
+    return ipaddr.parse(ip).range() === 'unicast';
+  } catch {
+    return false;
+  }
+}
 
 // Custom DNS lookup blocks SSRF ranges at connection time.
 function safeLookup(
@@ -32,9 +35,8 @@ function safeLookup(
     try {
       const ips = Array.isArray(address) ? address.map((item) => item.address) : [address];
       for (const ip of ips) {
-        const addr = ipaddr.parse(ip);
-        if (restrictedRanges.includes(addr.range())) {
-          return callback(new Error(`SSRF blocked: IP ${ip} is restricted`), '', 0);
+        if (!isPublicUnicastIp(ip)) {
+          return callback(new Error('SSRF blocked: destination resolved to a non-public IP range'), '', 0);
         }
       }
       callback(null, address, family);
