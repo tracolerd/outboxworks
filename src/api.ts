@@ -1,5 +1,6 @@
 ﻿import express from 'express';
 import path from 'path';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { pool } from './db.js';
 import { validateWebhookUrl } from './ssrf.js';
@@ -62,8 +63,29 @@ app.post('/events', requireProducer, async (req, res) => {
         [endpoint_id, payload, idempotency_key]
       );
       if (eventResult.rowCount === 0) {
+        // An idempotency key is bound to the first accepted payload. Exact
+        // retries return the original event ID; reusing the key for different
+        // content is a client conflict, not a successful duplicate.
+        const existing = await client.query(
+          'SELECT id, payload FROM events WHERE endpoint_id = $1 AND idempotency_key = $2',
+          [endpoint_id, idempotency_key]
+        );
         await client.query('ROLLBACK');
-        res.status(200).json({ message: 'Event already accepted (idempotent)' });
+        if (existing.rowCount !== 1) {
+          res.status(500).json({ error: 'Unable to resolve existing idempotency key' });
+          return;
+        }
+        if (!isDeepStrictEqual(existing.rows[0].payload, payload)) {
+          res.status(409).json({
+            error: 'Idempotency key was already used with a different payload',
+            code: 'IDEMPOTENCY_KEY_PAYLOAD_MISMATCH',
+          });
+          return;
+        }
+        res.status(200).json({
+          id: existing.rows[0].id,
+          message: 'Event already accepted (idempotent)',
+        });
         return;
       }
       const eventId = eventResult.rows[0].id;
