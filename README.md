@@ -1,6 +1,6 @@
 <!--
   OutboxWorks — audited project documentation.
-  This README describes the hardening/production-readiness branch, not the older main snapshot.
+  This README describes the merged implementation on the default `main` branch.
 -->
 
 <p align="center">
@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/tracolerd/outboxworks/actions/workflows/ci.yml"><img src="https://github.com/tracolerd/outboxworks/actions/workflows/ci.yml/badge.svg?branch=hardening%2Fproduction-readiness" alt="OutboxWorks CI status on hardening branch" /></a>
+  <a href="https://github.com/tracolerd/outboxworks/actions/workflows/ci.yml"><img src="https://github.com/tracolerd/outboxworks/actions/workflows/ci.yml/badge.svg?branch=main" alt="OutboxWorks CI status on hardening branch" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2563EB?style=for-the-badge" alt="MIT License" /></a>
   <img src="https://img.shields.io/badge/Runtime-Node.js%2024-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" alt="Node.js 24" />
   <img src="https://img.shields.io/badge/Language-TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
@@ -36,9 +36,9 @@
 ---
 
 > [!IMPORTANT]
-> **This README describes `hardening/production-readiness`.** At the time of this audit, the newer hardening work is on that branch and has not been merged into `main`. The latest observed CI run passed type checking, compilation, migration setup, and the automated test suite for commit [`0347db8`](https://github.com/tracolerd/outboxworks/commit/0347db89c8bf0542a804b15dfec7af84935b9f43). That is useful automated evidence—not a production deployment, independent penetration test, or proof of complete security.
+> **The hardening snapshot is merged into `main`.** It was merged through [PR #2](https://github.com/tracolerd/outboxworks/pull/2) as commit [`bd49108`](https://github.com/tracolerd/outboxworks/commit/bd49108de60997508c67a5eb8011dc7617c4c714). The release candidate passed the configured [GitHub Actions checks](https://github.com/tracolerd/outboxworks/actions/runs/40355627588) and the [GitGuardian secret scan](https://github.com/tracolerd/outboxworks/runs/121687208999). The workflow covers dependency installation, type checking, compilation, PostgreSQL migration setup, and the configured test suite. This is automated verification, not an independent penetration test or production deployment.
 >
-> **Release status: hardened portfolio MVP; production exposure is not yet recommended.** Several important hardening tasks remain, including complete IPv4/IPv6 SSRF coverage, migration compatibility with older databases containing plaintext endpoint secrets, worker claim fencing, rate limiting, and deployment/operations verification. The implementation and remaining limitations are described explicitly below.
+> **Release status: hardened portfolio MVP; public production exposure is not recommended yet.** Remaining items include broader IPv4/IPv6 SSRF coverage, a tested migration path from older plaintext-secret databases, stale-worker claim fencing, rate limiting/quotas, dependency vulnerability auditing, and deployment/backup/recovery verification. See the security review below.
 
 ## Overview
 
@@ -241,7 +241,7 @@ The digest is HMAC-SHA256 over `<timestamp>.<serialized-payload>`. The timestamp
 
 ## Run locally
 
-The steps below are intended for a **local development environment with a disposable database**. The remote hardening branch contains the latest documented implementation. At the time of this audit, it has not been merged into `main`.
+The steps below are intended for a **local development environment with a disposable database** using the merged `main` branch.
 
 ### Prerequisites
 
@@ -253,14 +253,14 @@ The steps below are intended for a **local development environment with a dispos
 ### 1. Clone the hardening branch
 
 ~~~powershell
-git clone --branch hardening/production-readiness --single-branch https://github.com/tracolerd/outboxworks.git
+git clone https://github.com/tracolerd/outboxworks.git
 Set-Location .\outboxworks
 npm ci
 ~~~
 
 ### 2. Configure environment variables
 
-The checked-in `.env.example` is **not complete for the current hardening code**: the application also requires `PRODUCER_SECRET` and `ENCRYPTION_KEY`. Create a local `.env` containing every required value before running the application. Do not commit this file.
+The checked-in `.env.example` lists all required variable names, but secret and database-password values are intentionally blank. Fill them with locally generated credentials before startup. Never commit the resulting `.env` file or reuse local values in production.
 
 Generate three separate high-entropy values in PowerShell:
 
@@ -355,7 +355,7 @@ The checked-in GitHub Actions workflow is at `.github/workflows/ci.yml`. Its cur
 4. PostgreSQL-backed migration setup.
 5. The automated Node.js test suite.
 
-The latest observed successful run at the time of this audit was [CI run #1](https://github.com/tracolerd/outboxworks/actions/runs/40350390536), for commit [`0347db8`](https://github.com/tracolerd/outboxworks/commit/0347db89c8bf0542a804b15dfec7af84935b9f43) on `hardening/production-readiness`. It completed dependency installation, type checking, build, schema migration, and tests successfully.
+The release candidate passed [PR CI run #4](https://github.com/tracolerd/outboxworks/actions/runs/40355627588) on commit [`8b5b2f0`](https://github.com/tracolerd/outboxworks/commit/8b5b2f0877582a46416f5ff2ed390a1a86010df0), plus the GitGuardian secret scan. The current `main` badge above and the [Actions page](https://github.com/tracolerd/outboxworks/actions) show the latest post-merge status.
 
 **The CI result must be read within its scope.** It does not establish that SSRF protection covers every special-purpose address, that old databases migrate without data loss, that multiple workers remain safe under every lease-expiry race, or that the service has passed independent security, load, recovery, or production deployment testing. The workflow also does not currently run a dedicated `npm audit` step.
 
@@ -379,7 +379,6 @@ This section reflects a source-level review of the current `hardening/production
 - `/ready` should be tested for connection cleanup on the database-error path, not only the healthy path.
 - Retry policy currently uses fixed attempt limits and exponential backoff without jitter or a documented `Retry-After` strategy.
 - The API does not yet provide pagination/filtering or a protected complete delivery-attempt/audit history endpoint.
-- Package metadata still declares `main: index.js`, although the checked-in tree uses the compiled service entrypoint under `dist/`; reconcile the metadata if the package is intended to be imported by other projects.
 - The current CI run succeeded, but dependency vulnerability auditing and broad end-to-end or load tests are not part of the workflow.
 - A successful 2xx response cannot establish exactly-once remote business execution.
 
