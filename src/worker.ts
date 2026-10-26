@@ -3,6 +3,7 @@ import { sendWebhook } from './sender.js';
 import { generateSignature } from './signer.js';
 import { decryptSecret } from './crypto.js';
 import { config } from './config.js';
+import { calculateRetryDelaySeconds, hasExceededMaximumDeliveryAge } from './retry-policy.js';
 const POLL_INTERVAL_MS = 2000;
 const LOCK_TIMEOUT_MINUTES = 2;
 const MAX_ATTEMPTS = 5; // Bounded retry limit
@@ -71,17 +72,23 @@ export async function processNextDelivery(): Promise<boolean> {
       `, [delivery.id]);
       console.log(`✅ [Delivery ${delivery.id}] SUCCESS to ${eventData.url} in ${result.durationMs}ms`);
     } else {
-      if (delivery.attempt_count >= MAX_ATTEMPTS) {
+      const ageLimitExceeded = hasExceededMaximumDeliveryAge(delivery.created_at);
+      if (delivery.attempt_count >= MAX_ATTEMPTS || ageLimitExceeded) {
         await resultClient.query(`
           UPDATE deliveries SET status = 'DEAD_LETTERED', updated_at = NOW(), locked_until = NULL WHERE id = $1
         `, [delivery.id]);
         await resultClient.query(`
           INSERT INTO audit_events (delivery_id, action, details)
           VALUES ($1, 'DEAD_LETTER_TRANSITION', $2)
-        `, [delivery.id, JSON.stringify({ reason: result.errorReason, attempts: delivery.attempt_count })]);
-        console.error(`💀 [Delivery ${delivery.id}] DEAD-LETTERED after ${delivery.attempt_count} attempts.`);
+        `, [delivery.id, JSON.stringify({
+          reason: result.errorReason,
+          attempts: delivery.attempt_count,
+          maxAgeExceeded: ageLimitExceeded
+        })]);
+        const terminalReason = ageLimitExceeded ? 'maximum delivery age exceeded' : 'maximum attempts reached';
+        console.error(`💀 [Delivery ${delivery.id}] DEAD-LETTERED: ${terminalReason} after ${delivery.attempt_count} attempts.`);
       } else {
-        const backoffSecs = Math.min(2 * Math.pow(2, delivery.attempt_count - 1), 3600);
+        const backoffSecs = calculateRetryDelaySeconds(delivery.attempt_count);
         await resultClient.query(`
           UPDATE deliveries SET status = 'SCHEDULED', next_attempt_at = NOW() + INTERVAL '${backoffSecs} seconds', updated_at = NOW(), locked_until = NULL WHERE id = $1
         `, [delivery.id]);
