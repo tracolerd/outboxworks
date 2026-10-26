@@ -1,6 +1,6 @@
 <!--
-  OutboxWorks README
-  Keep implementation claims aligned with src/, package.json, tests, and docs/.
+  OutboxWorks — audited project documentation.
+  This README describes the hardening/production-readiness branch, not the older main snapshot.
 -->
 
 <p align="center">
@@ -11,168 +11,180 @@
 
 <p align="center">
   <strong>Durable events. Observable retries. Explicit failure states.</strong><br/>
-  A TypeScript and PostgreSQL webhook-delivery MVP built around idempotent enqueueing, signed requests, retry history, and controlled replay.
+  A TypeScript and PostgreSQL webhook-delivery service exploring idempotent enqueueing, signed outbound requests, retry scheduling, dead-letter handling, and operator monitoring.
 </p>
 
 <p align="center">
+  <a href="https://github.com/tracolerd/outboxworks/actions/workflows/ci.yml"><img src="https://github.com/tracolerd/outboxworks/actions/workflows/ci.yml/badge.svg?branch=hardening%2Fproduction-readiness" alt="OutboxWorks CI status on hardening branch" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-2563EB?style=for-the-badge" alt="MIT License" /></a>
-  <img src="https://img.shields.io/badge/Runtime-Node.js%2024-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" alt="Node.js runtime" />
+  <img src="https://img.shields.io/badge/Runtime-Node.js%2024-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" alt="Node.js 24" />
   <img src="https://img.shields.io/badge/Language-TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
-  <img src="https://img.shields.io/badge/Database-PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL" />
-  <img src="https://img.shields.io/badge/Stage-MVP%20%7C%20Hardening%20Required-D97706?style=for-the-badge" alt="MVP with hardening required" />
+  <img src="https://img.shields.io/badge/Database-PostgreSQL%2016-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL 16" />
+  <img src="https://img.shields.io/badge/Stage-Hardened%20Portfolio%20MVP-D97706?style=for-the-badge" alt="Hardened portfolio MVP" />
 </p>
 
 <p align="center">
   <a href="#overview">Overview</a> ·
-  <a href="#implemented-capabilities">Capabilities</a> ·
-  <a href="#delivery-lifecycle">Delivery lifecycle</a> ·
-  <a href="#api-reference">API reference</a> ·
-  <a href="#local-development">Local development</a> ·
-  <a href="#security-audit-and-known-limitations">Security audit</a> ·
-  <a href="#roadmap">Roadmap</a>
+  <a href="#capabilities">Capabilities</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#api-reference">API</a> ·
+  <a href="#run-locally">Run locally</a> ·
+  <a href="#verification">Verification</a> ·
+  <a href="#security-review-and-known-limitations">Security review</a>
 </p>
 
 ---
 
-> [!CAUTION]
-> **Local portfolio MVP — not safe to expose to the public internet.** This source audit found multiple release blockers: most routes have no authentication, an unset admin secret falls back to a known value, endpoint secrets are stored as plaintext, the dashboard renders endpoint URLs through `innerHTML`, and the SSRF check is vulnerable to DNS time-of-check/time-of-use gaps. The API entrypoint `src/server.ts` exists, but startup and end-to-end behavior still require execution-based verification. No GitHub Actions workflow is currently present. These findings are documented below rather than hidden behind a “production-ready” claim.
+> [!IMPORTANT]
+> **This README describes `hardening/production-readiness`.** At the time of this audit, the newer hardening work is on that branch and has not been merged into `main`. The latest observed CI run passed type checking, compilation, migration setup, and the automated test suite for commit [`0347db8`](https://github.com/tracolerd/outboxworks/commit/0347db89c8bf0542a804b15dfec7af84935b9f43). That is useful automated evidence—not a production deployment, independent penetration test, or proof of complete security.
+>
+> **Release status: hardened portfolio MVP; production exposure is not yet recommended.** Several important hardening tasks remain, including complete IPv4/IPv6 SSRF coverage, migration compatibility with older databases containing plaintext endpoint secrets, worker claim fencing, rate limiting, and deployment/operations verification. The implementation and remaining limitations are described explicitly below.
 
 ## Overview
 
-OutboxWorks explores a small but important reliability problem: when one application needs to notify another over HTTP, the receiver may be unavailable, a request may time out, or the sender may lose its connection after the receiver has already processed the event. A plain HTTP request is not a durable delivery system.
+OutboxWorks is a small event-delivery service for applications that need to send webhooks reliably. Direct HTTP calls alone do not provide durable queueing: a receiver may be down, a request may time out, or a sender may lose the response after the receiver has already processed the event.
 
-The project implements the core pieces of a database-backed webhook pipeline: an event is accepted idempotently, a delivery record is stored in PostgreSQL, a worker claims eligible work, requests are signed with HMAC-SHA256, failed attempts are scheduled for retry, and exhausted deliveries enter a dead-letter state. A small monitoring page exposes registered endpoints and recent delivery states.
+This project stores events and delivery state in PostgreSQL, uses a worker to attempt delivery, signs outbound payloads with HMAC-SHA256, records attempt results, schedules bounded retries, and moves exhausted deliveries to a dead-letter state. Operators can inspect endpoints and recent delivery states through a minimal server-served dashboard.
 
-The implementation is useful for studying transactional enqueueing, worker coordination, retry semantics, webhook signing, and the security boundary around user-supplied destination URLs. It is a **learning/portfolio MVP**. It is not a managed webhook platform, and its current access-control and deployment gaps make it unsuitable for production use.
+The hardening branch also introduces separate Admin and Producer bearer-token checks, AES-256-GCM encryption for newly stored endpoint secrets, a request-body size limit, versioned SQL migration tracking, safer dashboard DOM rendering, and a GitHub Actions pipeline.
 
-## Implemented capabilities
+OutboxWorks is a learning and portfolio project focused on reliability and defensive engineering. It is not a managed webhook SaaS, and the remaining issues in the security review must be resolved before treating it as a generally exposed production service.
 
-| Area | Current implementation | Important boundary |
+## Capabilities
+
+| Area | Current implementation | Scope and caveat |
 |---|---|---|
-| Endpoint registration | `POST /endpoints` validates a URL and requires a secret of at least 16 characters | Route is unauthenticated; secret is stored in plaintext |
-| Durable event enqueue | `POST /events` validates the request and writes the event and pending delivery in one PostgreSQL transaction | No producer identity or authorization is enforced |
-| Idempotency | Unique constraint on `(endpoint_id, idempotency_key)`; duplicate submissions do not create another event | Duplicate response does not return the original event ID |
-| Worker coordination | PostgreSQL row claiming with `FOR UPDATE SKIP LOCKED`; stale `IN_PROGRESS` claims can be recovered after their lease expires | Worker holds a database transaction while sending the external HTTP request |
-| Signed delivery | HMAC-SHA256 signature containing a timestamp and signature digest, sent in `OutboxWorks-Signature` | Receivers must implement verification and their own idempotent side-effect handling |
-| Timeout and redirects | Five-second request timeout in the worker; redirects are rejected | Network egress policy and destination validation need more hardening |
-| Retry policy | Failed requests are rescheduled with bounded exponential backoff; the fifth failed attempt is dead-lettered | The current worker uses a fixed five-attempt limit rather than endpoint-specific policy |
-| Attempt history | Records response status, duration, and an error reason for attempts | No dedicated HTTP route exposes the complete attempt history |
-| Dead-letter replay | `POST /deliveries/:id/replay` resets a dead-lettered delivery and writes an audit event | Current authentication fallback is insecure; do not deploy as-is |
-| Monitoring API | Lists registered endpoints and the latest 50 deliveries | No authentication, pagination/filtering, or full operational dashboard contract |
-| Dashboard | Server-served HTML page for endpoint and recent-delivery monitoring | Minimal UI; endpoint URL rendering has a stored-XSS risk |
-| Tests | Node.js test files cover enqueue/idempotency, signature verification, and selected SSRF cases | Tests require a configured PostgreSQL database; SSRF tests also depend on external DNS/network access. They were not executed as part of this documentation audit |
+| Durable enqueue | `POST /events` inserts an event and its `PENDING` delivery in one PostgreSQL transaction | Requires a Producer bearer token |
+| Idempotency | Unique constraint on `(endpoint_id, idempotency_key)` prevents duplicate enqueue records for the same endpoint/key pair | Reusing a key with a different payload returns an idempotent response; payload equivalence is not checked |
+| Endpoint management | `POST /endpoints` validates the URL and encrypts the supplied signing secret using AES-256-GCM before storage | Requires an Admin bearer token; key rotation and migration of older plaintext values need more work |
+| Outbound signing | HMAC-SHA256 signs the serialized payload with a timestamp; header name is `OutboxWorks-Signature` | Receiver must verify the exact raw payload, timestamp and digest |
+| SSRF controls | URL validation at registration plus a custom lookup in the HTTP sender; redirects are rejected | Additional reserved/IPv6 range coverage and direct-IP regression cases are still required |
+| Retry scheduling | Worker uses a five-attempt limit and exponential delays capped at one hour | The current policy is fixed; jitter and `Retry-After` handling are not implemented |
+| Worker coordination | PostgreSQL `FOR UPDATE SKIP LOCKED` claims eligible work; claim and delivery-result writes use short transactions around the network call | A fencing/claim-ownership check is still needed to rule out stale-worker result writes in edge cases |
+| Attempt history | Stores response status, duration, failure reason, and creation time | A protected endpoint for complete attempt history is not implemented |
+| Dead-letter replay | Admin-protected `POST /deliveries/:id/replay` resets an eligible dead-lettered delivery and writes an audit event | Replay is an at-least-once operation; inspect the historical attempt records before replaying |
+| API hardening | Admin/Producer token separation, Zod validation, JSON body limit of 100 KB, health and readiness routes | No rate-limit or quota layer is currently configured |
+| Monitoring | Protected API routes expose endpoint metadata and the 50 most recently updated deliveries | Minimal UI; not a complete incident-management or metrics platform |
+| Dashboard | Static HTML/CSS/JavaScript served by Express; user-supplied endpoint values are rendered through text nodes | Admin token is manually entered; use only over a trusted local connection or an appropriately secured HTTPS deployment |
+| Automated CI | GitHub Actions installs dependencies, type-checks, builds, initializes a PostgreSQL schema and runs tests | No deployment workflow, comprehensive end-to-end/load suite, or dedicated dependency-audit step is configured |
 
 ## Delivery lifecycle
 
 ~~~mermaid
 flowchart TD
     A[Producer] --> B[POST /events]
-    B --> C{Valid payload and endpoint?}
+    B --> C{Valid token and payload?}
     C -- No --> D[Reject request]
     C -- Yes --> E[PostgreSQL transaction]
-    E --> F[Insert event and PENDING delivery]
-    F --> G[Worker claims row with SKIP LOCKED]
-    G --> H[Sign payload with HMAC-SHA256]
-    H --> I[Send HTTP POST]
-    I --> J{2xx response?}
-    J -- Yes --> K[DELIVERED]
-    J -- No / timeout --> L{Attempt limit reached?}
-    L -- No --> M[SCHEDULED with backoff]
-    M --> G
-    L -- Yes --> N[DEAD_LETTERED + audit event]
-    N --> O[Authorized replay workflow]
+    E --> F[Persist event and PENDING delivery]
+    F --> G[Worker claims eligible delivery]
+    G --> H[Decrypt endpoint secret]
+    H --> I[Sign payload with HMAC-SHA256]
+    I --> J[Validate destination at send boundary]
+    J --> K[HTTP POST]
+    K --> L{2xx response?}
+    L -- Yes --> M[DELIVERED]
+    L -- No --> N{Attempts exhausted?}
+    N -- No --> O[SCHEDULED retry]
     O --> G
-    K --> P[Monitoring API]
-    N --> P
-    P --> Q[Dashboard]
+    N -- Yes --> P[DEAD_LETTERED and audit event]
+    P --> Q[Admin-authorized replay]
+    Q --> G
+    M --> R[Protected monitoring API]
+    P --> R
+    R --> S[Monitoring dashboard]
 ~~~
-
-The worker currently polls at a two-second interval when no eligible delivery is found. Eligible rows are claimed in a transaction using `FOR UPDATE SKIP LOCKED`, which helps multiple worker processes avoid intentionally claiming the same active row. A claim whose `locked_until` has expired can be recovered.
 
 ### Delivery states
 
 | State | Meaning |
 |---|---|
-| `PENDING` | Enqueued and waiting for a worker |
-| `IN_PROGRESS` | Claimed by a worker; a lease timestamp is recorded |
-| `SCHEDULED` | Failed and waiting for its next retry time |
-| `DELIVERED` | The receiver returned a successful HTTP status |
-| `DEAD_LETTERED` | The attempt limit was reached; manual replay is possible through the replay route |
+| `PENDING` | The event is durably queued and waiting for a worker |
+| `IN_PROGRESS` | A worker has claimed the delivery under a temporary lease |
+| `SCHEDULED` | A failed delivery is waiting for its next attempt |
+| `DELIVERED` | The receiver returned a 2xx HTTP response |
+| `DEAD_LETTERED` | The configured attempt limit was reached; an operator may request a replay |
 
-### Delivery guarantees: at-least-once, not exactly-once
+### Delivery semantics: at-least-once attempts
 
-OutboxWorks records work durably before attempting the outbound request, but it cannot guarantee exactly-once execution by a remote receiver. A receiver can process a request and the sender can still lose the response or fail before the database transaction is committed. That delivery may be attempted again.
+OutboxWorks does not guarantee exactly-once remote execution. A receiver can perform its work and the sender can still lose the response or fail before recording the outcome. That can lead to another attempt.
 
-Treat the system as **at-least-once delivery attempts**. Receivers should verify the signature, enforce their own idempotency for side effects, and avoid treating a successful HTTP response alone as proof that the overall business workflow is exactly once.
+Consumers should verify the `OutboxWorks-Signature` header, enforce their own idempotency for business side effects, and treat webhook delivery as an at-least-once interaction. A 2xx response shows that the receiver returned a successful HTTP status; it does not prove that the entire downstream business workflow completed exactly once.
 
 ## Architecture
 
 ~~~mermaid
 flowchart LR
-    subgraph API[Producer API]
-      A[Express + Zod]
-      B[URL policy check]
-      C[Transactional enqueue]
-      A --> B
-      B --> C
+    subgraph API[Express API]
+      A[Zod request validation]
+      B[Admin / Producer token middleware]
+      C[URL policy and encrypted secret storage]
+      A --> B --> C
     end
-    subgraph DB[PostgreSQL]
-      E[(events)]
+    subgraph PostgreSQL
+      E[(endpoints)]
+      V[(events)]
       D[(deliveries)]
       T[(delivery_attempts)]
-      AU[(audit_events)]
+      U[(audit_events)]
+      S[(schema_migrations)]
     end
-    subgraph Worker[Delivery worker]
+    subgraph DeliveryWorker
       W[Claim with SKIP LOCKED]
-      S[HMAC signer]
-      H[HTTP sender]
-      R[Retry / dead-letter transition]
-      W --> S --> H --> R
+      K[Decrypt secret and sign]
+      H[HTTP sender and DNS lookup policy]
+      R[Persist outcome / schedule retry]
+      W --> K --> H --> R
     end
-    subgraph Monitor[Monitoring]
-      M[Read-only-style JSON routes]
-      UI[Static HTML dashboard]
+    subgraph Monitoring
+      M[Protected monitoring endpoints]
+      UI[Static dashboard]
       M --> UI
     end
     C --> E
+    C --> V
     C --> D
     D --> W
     R --> D
     R --> T
-    R --> AU
+    R --> U
+    V --> M
     E --> M
     D --> M
 ~~~
 
-### Persistence model
+### PostgreSQL tables
 
 | Table | Responsibility |
 |---|---|
-| `endpoints` | Destination URL, endpoint secret, and creation timestamp |
-| `events` | JSON payload and producer-supplied idempotency key, scoped to an endpoint |
-| `deliveries` | Current delivery state, attempt count, next-attempt time, lock lease, and timestamps |
-| `delivery_attempts` | Per-attempt response status, duration, error reason, and creation time |
-| `audit_events` | Dead-letter transition and manual replay events |
+| `endpoints` | Destination URL, encrypted endpoint secret, and creation time |
+| `events` | JSON payload and idempotency key scoped to an endpoint |
+| `deliveries` | Current state, attempt count, next attempt time, lease and timestamps |
+| `delivery_attempts` | Per-attempt HTTP result, latency, failure reason and timestamp |
+| `audit_events` | Records important transitions such as dead-lettering and manual replay |
+| `schema_migrations` | Tracks applied SQL migration filenames |
 
-The SQL schema is in `src/schema.sql`. The migration script reads and executes that schema in a database transaction. This is a simple initial schema bootstrap, not a versioned migration framework.
+SQL migrations live under `src/migrations/`. The migration runner tracks applied filenames and executes a new migration in a transaction. The current history begins with an initial-schema migration; it should not be treated as a complete upgrade path for every database created by earlier revisions of the project.
 
 ## API reference
 
-The current API surface is defined in `src/api.ts`.
+The route definitions are in `src/api.ts`.
 
-| Method | Route | Purpose |
-|---|---|---|
-| `POST` | `/endpoints` | Register a webhook destination |
-| `POST` | `/events` | Enqueue a JSON event with an endpoint ID and idempotency key |
-| `POST` | `/deliveries/:id/replay` | Requeue a dead-lettered delivery and add an audit event |
-| `GET` | `/api/endpoints` | List endpoint URLs and creation timestamps |
-| `GET` | `/api/deliveries` | List the latest 50 delivery states and attempt counts |
+| Method | Route | Required credential | Purpose |
+|---|---|---|---|
+| `GET` | `/health` | None | Lightweight process liveness response |
+| `GET` | `/ready` | None | Checks database connectivity for readiness |
+| `POST` | `/endpoints` | Admin | Register a webhook destination and encrypt its secret |
+| `POST` | `/events` | Producer | Enqueue a JSON event with an idempotency key |
+| `POST` | `/deliveries/:id/replay` | Admin | Replay a dead-lettered delivery and record an audit event |
+| `GET` | `/api/endpoints` | Admin | List endpoint URLs and creation timestamps |
+| `GET` | `/api/deliveries` | Admin | List the most recent 50 delivery records |
 
-**Access-control warning:** only the replay endpoint checks a bearer secret, and its code currently uses the known value `dev-admin-secret` whenever `ADMIN_SECRET` is absent. The other endpoints—including endpoint registration, event enqueue, and monitoring reads—do not authenticate callers. Do not expose this API outside a trusted local environment.
+Authentication currently uses static shared bearer secrets configured through environment variables. This is a deliberately small single-service trust model, not an identity-provider integration or a full user/role administration system. Use unique, high-entropy values and transmit them only over a trusted local connection or HTTPS.
 
-### Example: register an endpoint
+### Register an endpoint
 
-The endpoint secret is used to sign delivery requests. Replace the sample with a unique secret stored securely for local development.
+Send this JSON to `POST /endpoints` using the Admin bearer token:
 
 ~~~json
 {
@@ -181,11 +193,11 @@ The endpoint secret is used to sign delivery requests. Replace the sample with a
 }
 ~~~
 
-Send that JSON to `POST /endpoints`. The URL must pass the current SSRF policy. The response contains the generated endpoint ID and URL.
+The response includes the generated endpoint UUID and URL. The supplied signing secret is encrypted for storage using the configured application encryption key. It is not returned by the monitoring API.
 
-### Example: enqueue an event
+### Enqueue an event
 
-Use the UUID returned by endpoint registration.
+Send this JSON to `POST /events` using the Producer bearer token. Replace the placeholder with an existing endpoint UUID.
 
 ~~~json
 {
@@ -198,175 +210,180 @@ Use the UUID returned by endpoint registration.
 }
 ~~~
 
-Send the JSON to `POST /events`. A new event and its `PENDING` delivery are inserted atomically. A repeated key for the same endpoint returns an idempotent acceptance response without inserting another event.
+A newly accepted event returns HTTP 201. A duplicate endpoint/key combination returns an idempotent response without creating a second event record. The API currently does not compare the repeated payload with the payload from the original request.
 
 ### Signature format
 
-The worker sends a signature header in this format:
+The outbound sender includes a header in this form:
 
 ~~~text
 OutboxWorks-Signature: t=<timestamp>,v1=<hex-digest>
 ~~~
 
-The digest is an HMAC-SHA256 over the timestamp, a dot, and the exact serialized JSON payload. The current timestamp is in **milliseconds**. The utility in `src/signer.ts` includes a five-minute default timestamp tolerance and uses constant-time comparison for the digest. A receiver must verify the signature against the exact request body and reject stale timestamps; possession of the header alone is not proof of authenticity.
+The digest is HMAC-SHA256 over `<timestamp>.<serialized-payload>`. The timestamp is expressed in milliseconds. `src/signer.ts` provides generation and verification helpers, including a five-minute default timestamp tolerance and constant-time digest comparison. A receiving service must apply verification to the exact serialized payload and reject stale signatures.
 
-## Technology stack
+## Technology
 
 | Layer | Technology |
 |---|---|
-| Runtime | Node.js 24.x is the documented development baseline |
-| Language | TypeScript, ES modules |
-| HTTP API | Express 5 |
-| Input validation | Zod |
-| Durable storage | PostgreSQL, accessed through `pg` |
-| Destination IP parsing | `ipaddr.js` |
-| Environment configuration | `dotenv` with Zod-based validation |
-| Test runner | Node.js built-in test runner through `tsx` |
-| Dashboard | Static HTML, CSS, and browser JavaScript served by Express |
-| License file | MIT |
+| Runtime | Node.js 24.x |
+| Language and module system | TypeScript, ES modules, NodeNext compilation |
+| API | Express 5 |
+| Validation and configuration | Zod, dotenv |
+| Database | PostgreSQL 16, `pg` |
+| Secret encryption | Node.js crypto, AES-256-GCM |
+| Webhook signatures | HMAC-SHA256 |
+| Destination validation | Node.js HTTP/HTTPS and DNS APIs, `ipaddr.js` |
+| Tests | Node.js built-in test runner through `tsx` |
+| Automation | GitHub Actions with a PostgreSQL service container |
+| Dashboard | Static HTML, CSS and browser JavaScript |
+| License | MIT |
 
-The repository has no committed Docker Compose setup and no GitHub Actions workflow at the audited revision. The development setup uses a locally managed PostgreSQL instance.
+## Run locally
 
-## Local development
-
-These steps prepare the database and run the available test/worker commands on Windows PowerShell. The source includes `src/server.ts` and `npm start` is configured to invoke it; run the startup command and verify the API/dashboard behavior locally rather than treating configuration alone as proof of a working end-to-end setup.
+The steps below are intended for a **local development environment with a disposable database**. The remote hardening branch contains the latest documented implementation. At the time of this audit, it has not been merged into `main`.
 
 ### Prerequisites
 
 - Git
 - Node.js 24.x and npm
-- PostgreSQL 16.x (the documented local baseline)
-- PostgreSQL client tools, including `psql`
+- PostgreSQL 16.x and `psql`
 - Windows PowerShell
 
-### 1. Clone and install dependencies
+### 1. Clone the hardening branch
 
 ~~~powershell
-git clone https://github.com/tracolerd/outboxworks.git
+git clone --branch hardening/production-readiness --single-branch https://github.com/tracolerd/outboxworks.git
 Set-Location .\outboxworks
-
 npm ci
 ~~~
 
-### 2. Configure a local database
+### 2. Configure environment variables
 
-Create a private local environment file and replace the sample password with the credentials for your own PostgreSQL role.
+The checked-in `.env.example` is **not complete for the current hardening code**: the application also requires `PRODUCER_SECRET` and `ENCRYPTION_KEY`. Create a local `.env` containing every required value before running the application. Do not commit this file.
+
+Generate three separate high-entropy values in PowerShell:
 
 ~~~powershell
-Copy-Item .env.example .env
-notepad .env
+$adminSecret = (& node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))").Trim()
+$producerSecret = (& node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))").Trim()
+$encryptionKey = (& node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))").Trim()
 ~~~
 
-The example file uses local development defaults. Do not reuse sample credentials in a shared environment, commit the real `.env` file, or publish it in screenshots/issues.
+Create the local configuration, replacing the PostgreSQL password with your local database role's password:
 
-Create the database if it does not already exist:
+~~~powershell
+$envContent = @"
+NODE_ENV=development
+PORT=3000
+ADMIN_SECRET=$adminSecret
+PRODUCER_SECRET=$producerSecret
+ENCRYPTION_KEY=$encryptionKey
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=REPLACE_WITH_YOUR_LOCAL_POSTGRES_PASSWORD
+DB_NAME=outboxworks
+"@
+
+[System.IO.File]::WriteAllText(
+  (Join-Path (Get-Location) ".env"),
+  $envContent,
+  [System.Text.UTF8Encoding]::new($false)
+)
+~~~
+
+Keep the generated values private. The encryption key must remain stable for as long as encrypted endpoint secrets depend on it. Losing the key makes those secrets undecryptable; replacing it requires a planned re-encryption/rotation procedure.
+
+### 3. Create a dedicated local database
+
+If the database does not already exist:
 
 ~~~powershell
 psql -U postgres -c "CREATE DATABASE outboxworks;"
 ~~~
 
-If PostgreSQL uses a different local username, use that role in the command and in `.env`. If the database already exists, keep it and do not recreate it just to follow this guide.
+Do not point the test workflow or migration command at a database containing valuable data. **Do not run the initial migration blindly against an older OutboxWorks database.** The current migration set does not establish a fully verified conversion path for existing plaintext endpoint secrets.
 
-### 3. Initialize the schema
+### 4. Initialize the schema
 
-From the repository root, run:
+From the repository root:
 
 ~~~powershell
 npm exec tsx -- src/migrate.ts
 ~~~
 
-The script executes `src/schema.sql`. It expects the environment variables from `.env` to be valid and the database to be reachable.
+The migration runner applies the checked-in SQL files under `src/migrations/`. Review the migration output and stop if it reports an error.
 
-### 4. Run the tests
+### 5. Type-check, build, and test
 
 ~~~powershell
+npm run typecheck
+npm run build
 npm test
 ~~~
 
-The API integration test writes records to PostgreSQL, and the URL-policy tests perform DNS lookups for public hostnames. Use a disposable development database and allow the test process to reach DNS/network services. The test files do not constitute end-to-end coverage of retry behavior, worker recovery, the browser dashboard, or production security.
+The integration tests require a reachable PostgreSQL instance and the configured test credentials. Some SSRF policy tests perform DNS lookups and therefore depend on network/DNS availability. The suite is not a substitute for full worker concurrency, adversarial network, load, or deployment testing.
 
-### 5. Worker and API startup status
+### 6. Start the API
 
-The worker command is declared as:
+After a successful build:
+
+~~~powershell
+npm start
+~~~
+
+The server listens on port `3000` by default, or on the port configured by `PORT`. In a browser, the local dashboard is served from the same origin. Enter the local Admin bearer token only in a trusted local session.
+
+### 7. Start the worker
+
+Open a second PowerShell terminal in the project directory, using the same private environment configuration:
 
 ~~~powershell
 npm run worker
 ~~~
 
-It starts a polling process and expects a working PostgreSQL connection and initialized schema. Stop it with Ctrl+C.
+Keep PostgreSQL running. Stop the development processes with Ctrl+C. Do not expose this setup to an untrusted network as-is.
 
-The API command is `npm start`, which maps to `tsx src/server.ts` in `package.json`. The entrypoint imports the Express app and calls `app.listen(...)` on `PORT` or port `3000`. This confirms that a server entrypoint is present, but does not by itself prove database connectivity, API correctness, or full dashboard behavior; execute the startup and smoke-test it in the local environment.
+## Verification
 
-## Tests and verification
+The checked-in GitHub Actions workflow is at `.github/workflows/ci.yml`. Its current pipeline performs:
 
-The repository includes three test files:
+1. Dependency installation using `npm ci`.
+2. Type checking via `npm run typecheck`.
+3. Compilation via `npm run build`.
+4. PostgreSQL-backed migration setup.
+5. The automated Node.js test suite.
 
-- `src/api.test.ts` exercises endpoint creation, event enqueueing, invalid endpoint IDs, duplicate idempotency keys, and persisted delivery state.
-- `src/signer.test.ts` checks valid signatures, payload tampering, wrong secrets, and expired timestamps.
-- `src/ssrf.test.ts` checks selected public destinations, loopback/private destinations, a link-local metadata IP, and invalid URL protocols.
+The latest observed successful run at the time of this audit was [CI run #1](https://github.com/tracolerd/outboxworks/actions/runs/40350390536), for commit [`0347db8`](https://github.com/tracolerd/outboxworks/commit/0347db89c8bf0542a804b15dfec7af84935b9f43) on `hardening/production-readiness`. It completed dependency installation, type checking, build, schema migration, and tests successfully.
 
-This is useful starter coverage, but it is not proof of production reliability or security. The API test depends on a real PostgreSQL database. The SSRF tests rely on DNS/network behavior. The suite does not comprehensively test multiple workers, retry timing, stale-claim recovery, dead-letter replay authorization, the browser UI, or malicious DNS changes.
+**The CI result must be read within its scope.** It does not establish that SSRF protection covers every special-purpose address, that old databases migrate without data loss, that multiple workers remain safe under every lease-expiry race, or that the service has passed independent security, load, recovery, or production deployment testing. The workflow also does not currently run a dedicated `npm audit` step.
 
-**Verification status for this README update:** source and configuration were inspected, but the tests were not executed during this documentation audit. No passing test count or green CI status is claimed. The repository currently has no checked-in `.github/workflows/ci.yml` workflow.
+The current test files cover API enqueue/idempotency and authorization cases, HMAC signature behavior, selected SSRF cases, secret encryption, and migration behavior. They do not yet constitute comprehensive end-to-end verification of every failure mode.
 
-## Security audit and known limitations
+## Security review and known limitations
 
-This section is intentionally explicit. The findings below are visible in the current source and should be treated as release blockers for any network-exposed deployment.
+This section reflects a source-level review of the current `hardening/production-readiness` branch. It is not a penetration test, external security certification, or statement that all issues are fixed.
 
-### Critical: authorization and secrets
+### High-priority items before public production exposure
 
-1. **Most API routes are unauthenticated.** A caller can register endpoints, enqueue events, and read monitoring data without an identity or authorization check. Add a defined trust boundary and enforce authentication/authorization before exposing the service.
-2. **The replay route has an unsafe default secret.** If `ADMIN_SECRET` is unset, the code accepts the well-known bearer value `dev-admin-secret`. Remove the fallback and fail closed when the secret is absent; preferably replace the shared secret with a proper administrative identity/authorization design.
-3. **Endpoint secrets are stored as plaintext.** The `endpoints.secret` database column stores the signing secret directly. Restrict database access and move toward encryption or a dedicated secret store before using real endpoint credentials.
-4. **The dashboard has a stored-XSS risk.** Endpoint URLs returned from the API are interpolated into `innerHTML` instead of being rendered as text nodes. Escape/untrusted-data-harden the UI and test URL inputs containing HTML-like characters.
+1. **Complete SSRF range handling.** The outbound lookup blocks several address classes, but the current denylist does not cover every reserved IPv4/IPv6 range (including IPv6 unique-local/reserved categories) and needs explicit tests for IP-literal destinations. Do not treat the existing SSRF controls as a complete egress security boundary.
+2. **Safe migration from older data.** The migration history begins with an initial schema using `CREATE TABLE IF NOT EXISTS`. It does not provide a verified data migration from an older database that stores endpoint secrets in plaintext to the current AES-GCM ciphertext representation. Use a clean disposable database for the documented setup until a backup-aware conversion migration is implemented and tested.
+3. **Worker claim ownership.** The worker releases its database connection during the HTTP request, which avoids holding the transaction open across network I/O. The result update still needs a claim-token/fencing or equivalent ownership guard to prevent a stale worker from overwriting the outcome of a later claim in rare lease-expiry scenarios.
+4. **Rate limiting and quotas.** Authentication and a 100 KB JSON body limit are present, but there is no configured request-rate or durable-queue quota policy. Add suitable controls before accepting requests from untrusted producers.
+5. **Shared bearer credentials.** Admin and Producer permissions use long-lived shared bearer secrets from environment configuration, not per-user identities, short-lived credentials, or a managed identity provider. Restrict distribution, plan rotation, and transmit them only over a trusted local connection or HTTPS.
+6. **Deployment and recovery.** TLS termination, production secret distribution/rotation, backup restoration drills, service monitoring, data retention, and a deployment rollback procedure are not verified by the repository. These require an explicit deployment environment and operational tests.
 
-### Critical: SSRF and outbound network policy
+### Additional reliability and maintenance notes
 
-5. **Destination validation happens at registration, not at send time.** The URL is resolved and checked when an endpoint is created, but the worker later calls `fetch` independently. DNS records can change between validation and connection (a time-of-check/time-of-use gap). Revalidate and pin safe resolved addresses at connection time, check all resolved addresses, and design explicitly against DNS rebinding.
-6. **The policy is a denylist, not a network egress boundary.** It blocks several private, loopback, link-local, and reserved address classes, and the sender rejects redirects. That is useful defense-in-depth, but not a substitute for a robust resolver/connection strategy and outbound firewall policy.
-7. **No rate limiting or quota model is implemented.** Once an endpoint is registered, requests can create durable work. Add authentication, abuse controls, payload limits, and quotas before making the API reachable by untrusted producers.
+- `/ready` should be tested for connection cleanup on the database-error path, not only the healthy path.
+- Retry policy currently uses fixed attempt limits and exponential backoff without jitter or a documented `Retry-After` strategy.
+- The API does not yet provide pagination/filtering or a protected complete delivery-attempt/audit history endpoint.
+- Package metadata still declares `main: index.js`, although the checked-in tree uses the compiled service entrypoint under `dist/`; reconcile the metadata if the package is intended to be imported by other projects.
+- The current CI run succeeded, but dependency vulnerability auditing and broad end-to-end or load tests are not part of the workflow.
+- A successful 2xx response cannot establish exactly-once remote business execution.
 
-### Reliability and operational gaps
-
-8. **Startup and end-to-end verification are still required.** Although `src/server.ts` exists and is referenced by `npm start`, this audit did not execute the application, verify its startup against PostgreSQL, or smoke-test the browser dashboard.
-9. **The worker keeps a database transaction open while performing an external HTTP request.** This pins a connection and holds database locks across network I/O. Separate the claim/lease transaction from the outbound request and use a carefully tested lease/recovery protocol.
-10. **The delivery process is at-least-once.** Receivers may observe duplicates when a request succeeds remotely but its outcome is not durably recorded locally. Receiver-side idempotency is required; exactly-once execution is not guaranteed.
-11. **Monitoring is minimal.** The dashboard only displays endpoints and the latest 50 deliveries. There is no authentication, pagination/filtering, full attempt-history route, comprehensive audit viewer, or operational alerting.
-12. **CI and end-to-end verification are missing.** No workflow currently runs install, type-check/build, tests, and a database-backed integration suite on pushes or pull requests. Add a reproducible CI database service and deterministic tests before presenting the implementation as verified.
-
-### Repository and package metadata
-
-13. **Package metadata is stale.** The npm package description contains old README/banner markup, the package declares `ISC` while the root `LICENSE` is MIT, and the declared `main` entry `index.js` is not present. These fields should be reconciled with the actual project.
-14. **Schema setup is a one-shot bootstrap, not a migration history.** The script executes the full schema file; future schema changes need versioned, repeatable migrations and an explicit upgrade/rollback strategy.
-15. **No production operations story is included.** TLS termination, secret rotation, backups/restoration, structured metrics/logging, graceful shutdown, retention, monitoring, and deployment hardening have not been established by this repository.
-
-Use synthetic events and unique development-only secrets. Keep the API bound to a trusted local environment. Do not interpret a passing unit test, a successful webhook, or a visible dashboard as proof that the service is production-safe.
-
-## Roadmap
-
-### P0 — Make the local MVP run safely
-
-- [ ] Execute and smoke-test `npm start` against a disposable PostgreSQL database; verify the API and dashboard routes, then add regression coverage.
-- [ ] Remove the hard-coded replay-secret fallback and fail closed when admin configuration is missing.
-- [ ] Add authentication/authorization to endpoint creation, event enqueue, replay, and monitoring routes.
-- [ ] Render endpoint values as text, not raw HTML; add a regression test for malicious URL strings.
-- [ ] Harden SSRF protection against multi-address DNS answers and DNS rebinding at the actual connection boundary.
-- [ ] Stop storing endpoint signing secrets in plaintext.
-
-### P1 — Improve delivery reliability
-
-- [ ] Separate row claiming from network I/O while preserving safe lease recovery.
-- [ ] Add worker tests for retries, concurrency, stale locks, dead-letter transition, and replay.
-- [ ] Expose attempt history and audit events through protected API routes.
-- [ ] Add payload limits, rate limits, request validation, structured logs, and graceful shutdown.
-- [ ] Build a versioned database migration strategy.
-
-### P2 — Verify and maintain
-
-- [ ] Add GitHub Actions for install, formatting/type checks, unit tests, PostgreSQL-backed integration tests, and a smoke test.
-- [ ] Make tests deterministic and avoid dependence on live public DNS wherever possible.
-- [ ] Reconcile package name, description, entrypoint, and license metadata.
-- [ ] Document deployment, secret rotation, backups, and recovery only after those workflows are implemented and tested.
+Use synthetic payloads and development-only credentials. Restrict access to the local development environment, protect the encryption key, and do not interpret a green CI badge or a visible dashboard as proof that the service is production-safe.
 
 ## Repository layout
 
@@ -376,27 +393,36 @@ Use synthetic events and unique development-only secrets. Keep the API bound to 
 │   └── outboxworks-banner.svg
 ├── docs/
 │   ├── DECISIONS.md
-│   └── PROJECT_STATE.md
+│   ├── PROJECT_STATE.md
+│   └── PRODUCTION_READINESS_PLAN.md
 ├── public/
-│   └── index.html          # Minimal monitoring dashboard
+│   └── index.html
 ├── src/
-│   ├── api.ts              # Express routes and request validation
-│   ├── api.test.ts         # Database-backed enqueue/idempotency test
-│   ├── config.ts           # Environment validation
-│   ├── db.ts               # PostgreSQL connection pool
-│   ├── health.ts           # PostgreSQL connectivity check
-│   ├── migrate.ts          # Initial schema bootstrap
-│   ├── schema.sql          # Durable outbox and history tables
-│   ├── sender.ts           # HTTP delivery, timeout and redirect policy
-│   ├── server.ts           # Express app entrypoint
-│   ├── signer.ts           # HMAC-SHA256 signing and verification
-│   ├── signer.test.ts      # Signature checks
-│   ├── ssrf.ts             # Destination URL validation
-│   ├── ssrf.test.ts        # Selected SSRF policy tests
-│   └── worker.ts           # Claim, delivery, retry and dead-letter loop
+│   ├── migrations/
+│   │   └── 001_initial_schema.sql
+│   ├── api.ts
+│   ├── api.test.ts
+│   ├── auth.ts
+│   ├── auth.test.ts
+│   ├── config.ts
+│   ├── crypto.ts
+│   ├── crypto.test.ts
+│   ├── db.ts
+│   ├── health.ts
+│   ├── migrate.ts
+│   ├── migrate.test.ts
+│   ├── sender.ts
+│   ├── server.ts
+│   ├── signer.ts
+│   ├── signer.test.ts
+│   ├── ssrf.ts
+│   ├── ssrf.test.ts
+│   └── worker.ts
+├── .github/workflows/ci.yml
 ├── .env.example
 ├── package.json
 ├── package-lock.json
+├── tsconfig.json
 └── LICENSE
 ~~~
 
@@ -405,8 +431,6 @@ Use synthetic events and unique development-only secrets. Keep the API bound to 
 ## Creator, Developer & Maintainer
 
 **Created, designed, developed, and maintained by [Nurul Faiyaz](https://github.com/tracolerd).**
-
-This is an independently built portfolio project.
 
 <p align="center">
   <a href="https://www.facebook.com/faiyaz.888"><img src="https://img.shields.io/badge/Facebook-1877F2?style=for-the-badge&logo=facebook&logoColor=white" alt="Facebook" /></a>
@@ -430,4 +454,4 @@ This is an independently built portfolio project.
 
 ## License
 
-The repository includes an MIT license. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

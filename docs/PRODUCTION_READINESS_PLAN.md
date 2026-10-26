@@ -1,0 +1,56 @@
+﻿# OutboxWorks Production Readiness Plan
+## Baseline Information
+- **Date**: 2026-10-26
+- **Target Branch**: hardening/production-readiness
+- **Baseline Commit**: 6c11765
+## Phase 0: Prioritized Audit Findings
+### Critical Severity
+1. **Worker Transaction Held During I/O (Reliability)**: The worker holds a PostgreSQL transaction (BEGIN) open while making the external HTTP etch. This can cause database connection pool exhaustion and lock contention.
+2. **Plaintext Endpoint Secrets (Security)**: endpoints.secret is stored in plaintext in the database.
+3. **No Authentication (Security)**: The enqueue (/events) and dashboard APIs are entirely unprotected. 
+### High Severity
+4. **Dashboard XSS Risk (Security)**: public/index.html interpolates API data directly via innerHTML.
+5. **Insecure Defaults (Security)**: The replay API falls back to a hardcoded dev-admin-secret if ADMIN_SECRET is missing.
+### Medium Severity
+6. **No Graceful Shutdown (Reliability)**: API and worker processes do not handle SIGINT/SIGTERM, leading to aborted queries and unclosed DB pools on restart.
+7. **No CI/CD Pipeline (Automation)**: Missing GitHub Actions workflow for automated testing and type checking.
+## Phase 0 Checklist
+- [x] Local and remote states compared.
+- [x] Safe branch created (hardening/production-readiness).
+- [x] Audit findings documented.
+## Phase 1: Runtime, Package, and Configuration Foundation
+- [x] Standardized package scripts (build, test, start).
+- [x] Enforced strict configuration without insecure defaults.
+- [x] Graceful shutdown implemented for API server.
+- [x] Fixed TypeScript typing issues for strict mode.
+## Phase 2: Database Integrity and Migrations
+- [x] Implemented version-controlled migration system (schema_migrations).
+- [x] Refactored db.ts to enforce max connection pool limits and timeouts.
+- [x] Tested migration integrity within isolated database transactions.
+## Phase 3: Authentication, Authorization, and Secret Management
+- [x] Implemented Role-Based Access Control (Admin vs Producer).
+- [x] Secured all endpoints with crypto.timingSafeEqual Bearer tokens.
+- [x] Applied AES-256-GCM authenticated encryption at rest for endpoint secrets.
+- [x] Added ENCRYPTION_KEY validation and separated it from the database.
+- [x] Redacted secrets from GET endpoints.
+## Phase 4: SSRF and Outbound Network Security
+- [x] Enforced SSRF security policy at the actual outbound connection boundary.
+- [x] Replaced etch with http.request using a custom dns.lookup to prevent DNS rebinding attacks.
+- [x] Ensured redirects are explicitly blocked during webhook delivery.
+- [x] Fixed API integration tests 401 Unauthorized issues.
+## Phase 5: Worker Reliability and Delivery Semantics
+- [x] Refactored worker to decouple database transactions from external HTTP requests.
+- [x] Enforced short-lived transactions to prevent connection pool exhaustion.
+- [x] Implemented graceful shutdown flag (isShuttingDown) for the worker loop.
+## Phase 6: API Contracts, Input Validation, and Operability
+- [x] Enforced strict request body size limit (100kb) to protect against payload exhaustion.
+- [x] Added robust /health and /ready operational probes with secure database connectivity checks.
+## Phase 7: Dashboard Security and Usability
+- [x] Secured monitoring dashboard against Stored/Reflected XSS by replacing unsafe innerHTML interpolation with secure DOM node creation (	extContent).
+- [x] Integrated Bearer token authentication input directly into dashboard operational flow.
+## Phase 8: Comprehensive Testing and Regression Control
+- [x] Added automated security regression tests for token-based authentication (uth.test.ts).
+- [x] Verified full integration and unit test suite passes with strict authorization rules.
+## Phase 9: Continuous Integration and Dependency Hygiene
+- [x] Created GitHub Actions CI workflow (.github/workflows/ci.yml) running on Node 24 with a service container for PostgreSQL 16.
+- [x] Configured automated dependency installation, type checking, building, database migration, and test suite execution.
