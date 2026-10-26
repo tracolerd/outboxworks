@@ -31,7 +31,7 @@ export async function processNextDelivery(): Promise<boolean> {
           updated_at = NOW()
       FROM claimed
       WHERE d.id = claimed.id
-      RETURNING d.id, d.event_id, d.attempt_count;
+      RETURNING d.id, d.event_id, d.attempt_count, d.created_at;
     `);
     if (claimResult.rowCount === 0) {
       await claimClient.query('ROLLBACK');
