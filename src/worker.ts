@@ -2,12 +2,13 @@
 import { sendWebhook } from './sender.js';
 import { generateSignature } from './signer.js';
 const POLL_INTERVAL_MS = 2000;
-const LOCK_TIMEOUT_MINUTES = 2; // 2 minutes lock to prevent stale leases
+const LOCK_TIMEOUT_MINUTES = 2;
+const MAX_ATTEMPTS = 5; // Bounded retry limit
 export async function processNextDelivery(): Promise<boolean> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    // 1. Claim a pending or scheduled delivery using SKIP LOCKED
+    // 1. Claim a pending or scheduled delivery
     const claimResult = await client.query(`
       WITH claimed AS (
         SELECT d.id
@@ -29,10 +30,10 @@ export async function processNextDelivery(): Promise<boolean> {
     `);
     if (claimResult.rowCount === 0) {
       await client.query('ROLLBACK');
-      return false; // No tasks available
+      return false;
     }
     const delivery = claimResult.rows[0];
-    // 2. Fetch the associated event and endpoint data
+    // 2. Fetch event and endpoint
     const eventResult = await client.query(`
       SELECT e.payload, ep.url, ep.secret
       FROM events e
@@ -41,38 +42,42 @@ export async function processNextDelivery(): Promise<boolean> {
     `, [delivery.event_id]);
     const { payload, url, secret } = eventResult.rows[0];
     const payloadStr = JSON.stringify(payload);
-    // 3. Generate HMAC Signature
+    // 3. Send Webhook
     const signatureHeader = generateSignature(payloadStr, secret);
-    // 4. Send Webhook (Timeout will trigger if it takes > 5s)
     const result = await sendWebhook(url, payloadStr, signatureHeader, 5000);
-    // 5. Record Attempt History
+    // 4. Record Attempt
     await client.query(`
       INSERT INTO delivery_attempts (delivery_id, status_code, response_duration_ms, error_reason)
       VALUES ($1, $2, $3, $4)
     `, [delivery.id, result.statusCode, result.durationMs, result.errorReason]);
-    // 6. Update Delivery State based on Result
+    // 5. Update State (Success vs Failure with Backoff/Dead-letter)
     if (result.success) {
       await client.query(`
-        UPDATE deliveries 
-        SET status = 'DELIVERED', updated_at = NOW(), locked_until = NULL
-        WHERE id = $1
+        UPDATE deliveries SET status = 'DELIVERED', updated_at = NOW(), locked_until = NULL WHERE id = $1
       `, [delivery.id]);
       console.log(`✅ [Delivery ${delivery.id}] SUCCESS to ${url} in ${result.durationMs}ms`);
     } else {
-      // Note: Phase 4 will introduce exponential backoff & dead-letter logic.
-      // For now, we revert it to PENDING and schedule it 10 seconds later.
-      await client.query(`
-        UPDATE deliveries 
-        SET status = 'PENDING', 
-            next_attempt_at = NOW() + INTERVAL '10 seconds', 
-            updated_at = NOW(), 
-            locked_until = NULL
-        WHERE id = $1
-      `, [delivery.id]);
-      console.error(`❌ [Delivery ${delivery.id}] FAILED. Reason: ${result.errorReason}`);
+      if (delivery.attempt_count >= MAX_ATTEMPTS) {
+        // Dead-Letter Transition
+        await client.query(`
+          UPDATE deliveries SET status = 'DEAD_LETTERED', updated_at = NOW(), locked_until = NULL WHERE id = $1
+        `, [delivery.id]);
+        await client.query(`
+          INSERT INTO audit_events (delivery_id, action, details)
+          VALUES ($1, 'DEAD_LETTER_TRANSITION', $2)
+        `, [delivery.id, JSON.stringify({ reason: result.errorReason, attempts: delivery.attempt_count })]);
+        console.error(`💀 [Delivery ${delivery.id}] DEAD-LETTERED after ${delivery.attempt_count} attempts.`);
+      } else {
+        // Exponential Backoff (2s, 4s, 8s, 16s...)
+        const backoffSecs = Math.min(2 * Math.pow(2, delivery.attempt_count - 1), 3600);
+        await client.query(`
+          UPDATE deliveries SET status = 'SCHEDULED', next_attempt_at = NOW() + INTERVAL '${backoffSecs} seconds', updated_at = NOW(), locked_until = NULL WHERE id = $1
+        `, [delivery.id]);
+        console.warn(`⏳ [Delivery ${delivery.id}] FAILED. Retry ${delivery.attempt_count}/${MAX_ATTEMPTS} in ${backoffSecs}s. Reason: ${result.errorReason}`);
+      }
     }
     await client.query('COMMIT');
-    return true; // Successfully processed a task
+    return true;
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Worker error:', error);
@@ -81,18 +86,16 @@ export async function processNextDelivery(): Promise<boolean> {
     client.release();
   }
 }
-// Keep polling continuously
 async function startWorker() {
   console.log('👷 OutboxWorks Worker started... polling for jobs');
   while (true) {
     const processed = await processNextDelivery();
     if (!processed) {
-      // Sleep if no tasks to prevent spamming the database CPU
       await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
     }
   }
 }
-// Start only if this file is run directly (not imported in tests)
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Windows path safe entry point check (Node 20.11+)
+if (process.argv[1] === import.meta.filename || process.argv[1].endsWith('worker.ts')) {
   startWorker();
 }

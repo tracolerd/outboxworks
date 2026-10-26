@@ -4,10 +4,6 @@
   durationMs: number;
   errorReason: string | null;
 }
-/**
- * Sends the webhook payload to the destination URL.
- * Enforces a strict timeout to prevent worker starvation.
- */
 export async function sendWebhook(
   url: string, 
   payloadJson: string, 
@@ -26,7 +22,8 @@ export async function sendWebhook(
         'User-Agent': 'OutboxWorks-Worker/1.0'
       },
       body: payloadJson,
-      signal: controller.signal
+      signal: controller.signal,
+      redirect: 'error' // Prevents redirect-based SSRF bypass
     });
     const duration = Date.now() - startTime;
     return {
@@ -37,11 +34,14 @@ export async function sendWebhook(
     };
   } catch (error: any) {
     const duration = Date.now() - startTime;
+    let errorReason = error.message;
+    if (error.name === 'AbortError') errorReason = 'TIMEOUT';
+    else if (error.message.includes('redirect')) errorReason = 'REDIRECT_BLOCKED_FOR_SECURITY';
     return {
       success: false,
       statusCode: null,
       durationMs: duration,
-      errorReason: error.name === 'AbortError' ? 'TIMEOUT' : error.message
+      errorReason
     };
   } finally {
     clearTimeout(timeoutId);
