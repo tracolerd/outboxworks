@@ -1,9 +1,12 @@
 ﻿import express from 'express';
+import path from 'path';
 import { z } from 'zod';
 import { pool } from './db.js';
 import { validateWebhookUrl } from './ssrf.js';
 export const app = express();
 app.use(express.json());
+// Serve static files for the Dashboard
+app.use(express.static(path.join(process.cwd(), 'public')));
 const createEndpointSchema = z.object({
   url: z.string().url(),
   secret: z.string().min(16, 'Secret must be at least 16 characters for HMAC'),
@@ -13,19 +16,16 @@ const createEventSchema = z.object({
   payload: z.record(z.any()),
   idempotency_key: z.string().min(1),
 });
+// --- Existing POST Routes ---
 app.post('/endpoints', async (req, res) => {
   try {
     const { url, secret } = createEndpointSchema.parse(req.body);
-    // SSRF Policy Check
     const isSafeUrl = await validateWebhookUrl(url);
     if (!isSafeUrl) {
-      res.status(400).json({ error: 'URL violates SSRF security policy (private/reserved IPs are blocked)' });
+      res.status(400).json({ error: 'URL violates SSRF security policy' });
       return;
     }
-    const result = await pool.query(
-      'INSERT INTO endpoints (url, secret) VALUES ($1, $2) RETURNING id',
-      [url, secret]
-    );
+    const result = await pool.query('INSERT INTO endpoints (url, secret) VALUES ($1, $2) RETURNING id', [url, secret]);
     res.status(201).json({ id: result.rows[0].id, url });
   } catch (error) {
     if (error instanceof z.ZodError) res.status(400).json({ error: error.errors });
@@ -54,7 +54,7 @@ app.post('/events', async (req, res) => {
     } catch (dbError: any) {
       await client.query('ROLLBACK');
       if (dbError.code === '23503') {
-        res.status(400).json({ error: 'Invalid endpoint_id: Endpoint does not exist' });
+        res.status(400).json({ error: 'Invalid endpoint_id' });
         return;
       }
       throw dbError;
@@ -76,12 +76,7 @@ app.post('/deliveries/:id/replay', async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const result = await client.query(`
-      UPDATE deliveries 
-      SET status = 'PENDING', next_attempt_at = NOW(), attempt_count = 0 
-      WHERE id = $1 AND status = 'DEAD_LETTERED' 
-      RETURNING id
-    `, [id]);
+    const result = await client.query(`UPDATE deliveries SET status = 'PENDING', next_attempt_at = NOW(), attempt_count = 0 WHERE id = $1 AND status = 'DEAD_LETTERED' RETURNING id`, [id]);
     if (result.rowCount === 0) {
       await client.query('ROLLBACK');
       res.status(400).json({ error: 'Delivery not found or not in DEAD_LETTERED state' });
@@ -95,5 +90,28 @@ app.post('/deliveries/:id/replay', async (req, res) => {
     res.status(500).json({ error: 'Internal Server Error' });
   } finally {
     client.release();
+  }
+});
+// --- New GET Routes for Dashboard ---
+app.get('/api/endpoints', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT id, url, created_at FROM endpoints ORDER BY created_at DESC');
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+app.get('/api/deliveries', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT d.id, d.status, d.attempt_count, d.updated_at, ep.url 
+      FROM deliveries d
+      JOIN events e ON d.event_id = e.id
+      JOIN endpoints ep ON e.endpoint_id = ep.id
+      ORDER BY d.updated_at DESC LIMIT 50
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
