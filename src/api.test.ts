@@ -32,11 +32,19 @@ test('Durable Enqueue API & Idempotency Pipeline', async (t) => {
     const res = await fetch(`${baseUrl}/events`, { method: 'POST', headers: producerHeaders, body: JSON.stringify({ endpoint_id: '00000000-0000-0000-0000-000000000000', payload: { msg: 'hello' }, idempotency_key: 'another-key' }) });
     assert.strictEqual(res.status, 400);
   });
-  await t.test('4. Should handle duplicate idempotency key correctly (Idempotent 200 OK)', async () => {
-    const res = await fetch(`${baseUrl}/events`, { method: 'POST', headers: producerHeaders, body: JSON.stringify({ endpoint_id: endpointId, payload: { msg: 'diff payload' }, idempotency_key: idempotencyKey }) });
+  await t.test('4. Exact retry returns the original event ID', async () => {
+    const res = await fetch(`${baseUrl}/events`, { method: 'POST', headers: producerHeaders, body: JSON.stringify({ endpoint_id: endpointId, payload: { msg: 'hello' }, idempotency_key: idempotencyKey }) });
     assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.strictEqual(data.id, enqueuedEventId);
   });
-  await t.test('5. Verify durable database state transaction', async () => {
+  await t.test('5. Reusing a key with different payload returns conflict', async () => {
+    const res = await fetch(`${baseUrl}/events`, { method: 'POST', headers: producerHeaders, body: JSON.stringify({ endpoint_id: endpointId, payload: { msg: 'different payload' }, idempotency_key: idempotencyKey }) });
+    assert.strictEqual(res.status, 409);
+    const data = await res.json();
+    assert.strictEqual(data.code, 'IDEMPOTENCY_KEY_PAYLOAD_MISMATCH');
+  });
+  await t.test('6. Verify durable database state transaction', async () => {
     const dbCheck = await pool.query('SELECT * FROM deliveries WHERE event_id = $1', [enqueuedEventId]);
     assert.strictEqual(dbCheck.rows.length, 1);
     assert.strictEqual(dbCheck.rows[0].status, 'PENDING');
