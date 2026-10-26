@@ -42,3 +42,6 @@
 - [x] Refactored worker to decouple database transactions from external HTTP requests.
 - [x] Enforced short-lived transactions to prevent connection pool exhaustion.
 - [x] Implemented graceful shutdown flag (isShuttingDown) for the worker loop.
+## Phase 6: API Contracts, Input Validation, and Operability
+- [x] Enforced strict request body size limit (100kb) to protect against payload exhaustion.
+- [x] Added robust /health and /ready operational probes with secure database connectivity checks.

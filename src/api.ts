@@ -7,7 +7,8 @@ import { requireAdmin, requireProducer } from './auth.js';
 import { encryptSecret } from './crypto.js';
 import { config } from './config.js';
 export const app = express();
-app.use(express.json());
+// Security: Enforce strict request body size limit to prevent Denial of Service (DoS)
+app.use(express.json({ limit: '100kb' }));
 app.use(express.static(path.join(process.cwd(), 'public')));
 const createEndpointSchema = z.object({
   url: z.string().url(),
@@ -18,7 +19,21 @@ const createEventSchema = z.object({
   payload: z.record(z.string(), z.any()),
   idempotency_key: z.string().min(1),
 });
-// Admin Route: Create Endpoint (Encrypts secret)
+// Operational Health & Readiness Endpoints
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'UP', timestamp: new Date().toISOString() });
+});
+app.get('/ready', async (req, res) => {
+  try {
+    const client = await pool.connect();
+    await client.query('SELECT 1');
+    client.release();
+    res.status(200).json({ status: 'READY', database: 'CONNECTED' });
+  } catch (error) {
+    res.status(503).json({ status: 'NOT_READY', database: 'DISCONNECTED' });
+  }
+});
+// Admin Route: Create Endpoint
 app.post('/endpoints', requireAdmin, async (req, res) => {
   try {
     const { url, secret } = createEndpointSchema.parse(req.body);
@@ -92,7 +107,7 @@ app.post('/deliveries/:id/replay', requireAdmin, async (req, res) => {
     client.release();
   }
 });
-// Admin Routes: Dashboard APIs (Secrets omitted intentionally)
+// Dashboard APIs
 app.get('/api/endpoints', requireAdmin, async (req, res) => {
   try {
     const result = await pool.query('SELECT id, url, created_at FROM endpoints ORDER BY created_at DESC');
