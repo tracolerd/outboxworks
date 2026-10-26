@@ -35,7 +35,7 @@
 ---
 
 > [!CAUTION]
-> **Local portfolio MVP — not safe to expose to the public internet.** This source audit found multiple release blockers: the declared API start command points to a missing `src/server.ts`, most routes have no authentication, an unset admin secret falls back to a known value, endpoint secrets are stored as plaintext, the dashboard renders endpoint URLs through `innerHTML`, and the SSRF check is vulnerable to DNS time-of-check/time-of-use gaps. No GitHub Actions workflow is currently present. These findings are documented below rather than hidden behind a “production-ready” claim.
+> **Local portfolio MVP — not safe to expose to the public internet.** This source audit found multiple release blockers: most routes have no authentication, an unset admin secret falls back to a known value, endpoint secrets are stored as plaintext, the dashboard renders endpoint URLs through `innerHTML`, and the SSRF check is vulnerable to DNS time-of-check/time-of-use gaps. The API entrypoint `src/server.ts` exists, but startup and end-to-end behavior still require execution-based verification. No GitHub Actions workflow is currently present. These findings are documented below rather than hidden behind a “production-ready” claim.
 
 ## Overview
 
@@ -229,7 +229,7 @@ The repository has no committed Docker Compose setup and no GitHub Actions workf
 
 ## Local development
 
-These steps prepare the database and run the available test/worker commands on Windows PowerShell. **The API entrypoint needs to be repaired before the full application and dashboard can be started through the declared npm script.** That is an implementation gap in the current source, not a database setup issue.
+These steps prepare the database and run the available test/worker commands on Windows PowerShell. The source includes `src/server.ts` and `npm start` is configured to invoke it; run the startup command and verify the API/dashboard behavior locally rather than treating configuration alone as proof of a working end-to-end setup.
 
 ### Prerequisites
 
@@ -295,7 +295,7 @@ npm run worker
 
 It starts a polling process and expects a working PostgreSQL connection and initialized schema. Stop it with Ctrl+C.
 
-The declared API command is `npm start`, which maps to `tsx src/server.ts` in `package.json`; however, **`src/server.ts` is absent from the repository at the audited revision**. The Express app is exported by `src/api.ts`, but the committed project does not include the entrypoint that calls `app.listen(...)`. As a result, the standard API startup command—and therefore the normal server-served dashboard workflow—is currently broken. Add and test an explicit server entrypoint before considering the project ready for a full local demonstration.
+The API command is `npm start`, which maps to `tsx src/server.ts` in `package.json`. The entrypoint imports the Express app and calls `app.listen(...)` on `PORT` or port `3000`. This confirms that a server entrypoint is present, but does not by itself prove database connectivity, API correctness, or full dashboard behavior; execute the startup and smoke-test it in the local environment.
 
 ## Tests and verification
 
@@ -328,7 +328,7 @@ This section is intentionally explicit. The findings below are visible in the cu
 
 ### Reliability and operational gaps
 
-8. **The API server entrypoint is missing.** The npm start script points to a file that is not committed, so the documented full-stack startup path does not currently work.
+8. **Startup and end-to-end verification are still required.** Although `src/server.ts` exists and is referenced by `npm start`, this audit did not execute the application, verify its startup against PostgreSQL, or smoke-test the browser dashboard.
 9. **The worker keeps a database transaction open while performing an external HTTP request.** This pins a connection and holds database locks across network I/O. Separate the claim/lease transaction from the outbound request and use a carefully tested lease/recovery protocol.
 10. **The delivery process is at-least-once.** Receivers may observe duplicates when a request succeeds remotely but its outcome is not durably recorded locally. Receiver-side idempotency is required; exactly-once execution is not guaranteed.
 11. **Monitoring is minimal.** The dashboard only displays endpoints and the latest 50 deliveries. There is no authentication, pagination/filtering, full attempt-history route, comprehensive audit viewer, or operational alerting.
@@ -346,7 +346,7 @@ Use synthetic events and unique development-only secrets. Keep the API bound to 
 
 ### P0 — Make the local MVP run safely
 
-- [ ] Add and test `src/server.ts`; ensure `npm start` launches the API and dashboard.
+- [ ] Execute and smoke-test `npm start` against a disposable PostgreSQL database; verify the API and dashboard routes, then add regression coverage.
 - [ ] Remove the hard-coded replay-secret fallback and fail closed when admin configuration is missing.
 - [ ] Add authentication/authorization to endpoint creation, event enqueue, replay, and monitoring routes.
 - [ ] Render endpoint values as text, not raw HTML; add a regression test for malicious URL strings.
@@ -388,6 +388,7 @@ Use synthetic events and unique development-only secrets. Keep the API bound to 
 │   ├── migrate.ts          # Initial schema bootstrap
 │   ├── schema.sql          # Durable outbox and history tables
 │   ├── sender.ts           # HTTP delivery, timeout and redirect policy
+│   ├── server.ts           # Express app entrypoint
 │   ├── signer.ts           # HMAC-SHA256 signing and verification
 │   ├── signer.test.ts      # Signature checks
 │   ├── ssrf.ts             # Destination URL validation
