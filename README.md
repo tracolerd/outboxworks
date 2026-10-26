@@ -355,7 +355,7 @@ The checked-in GitHub Actions workflow is at `.github/workflows/ci.yml`. Its cur
 4. PostgreSQL-backed migration setup.
 5. The automated Node.js test suite.
 
-The release candidate passed [PR CI run #4](https://github.com/tracolerd/outboxworks/actions/runs/40355627588) on commit [`8b5b2f0`](https://github.com/tracolerd/outboxworks/commit/8b5b2f0877582a46416f5ff2ed390a1a86010df0), plus the GitGuardian secret scan. The current `main` badge above and the [Actions page](https://github.com/tracolerd/outboxworks/actions) show the latest post-merge status.
+The release candidate passed [PR CI run #9](https://github.com/tracolerd/outboxworks/actions/runs/40355627588) on commit [`8b5b2f0`](https://github.com/tracolerd/outboxworks/commit/8b5b2f0877582a46416f5ff2ed390a1a86010df0), plus the GitGuardian secret scan. After merge, [main CI run #14](https://github.com/tracolerd/outboxworks/actions/runs/40356473820) also passed for commit [`aee3122`](https://github.com/tracolerd/outboxworks/commit/aee3122eb8556a2049c159d490c02e3f105e0b38). The current `main` badge above and the [Actions page](https://github.com/tracolerd/outboxworks/actions) show the status of later changes.
 
 **The CI result must be read within its scope.** It does not establish that SSRF protection covers every special-purpose address, that old databases migrate without data loss, that multiple workers remain safe under every lease-expiry race, or that the service has passed independent security, load, recovery, or production deployment testing. The workflow also does not currently run a dedicated `npm audit` step.
 
