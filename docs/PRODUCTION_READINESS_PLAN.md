@@ -51,3 +51,6 @@
 ## Phase 8: Comprehensive Testing and Regression Control
 - [x] Added automated security regression tests for token-based authentication (uth.test.ts).
 - [x] Verified full integration and unit test suite passes with strict authorization rules.
+## Phase 9: Continuous Integration and Dependency Hygiene
+- [x] Created GitHub Actions CI workflow (.github/workflows/ci.yml) running on Node 24 with a service container for PostgreSQL 16.
+- [x] Configured automated dependency installation, type checking, building, database migration, and test suite execution.
