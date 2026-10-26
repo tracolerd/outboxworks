@@ -1,46 +1,49 @@
-﻿{
-    "name":  "project-7---outboxworks",
-    "version":  "1.0.0",
-    "description":  "Production-ready webhook delivery system with observable retries.",
-    "main":  "index.js",
-    "directories":  {
-                        "doc":  "docs"
-                    },
-    "scripts":  {
-                    "build":  "tsc",
-                    "test":  "tsx --test src/*.test.ts",
-                    "typecheck":  "tsc --noEmit",
-                    "worker:dev":  "tsx src/worker.ts",
-                    "start":  "node dist/server.js",
-                    "start:dev":  "tsx src/server.ts",
-                    "worker":  "node dist/worker.js"
-                },
-    "repository":  {
-                       "type":  "git",
-                       "url":  "git+https://github.com/tracolerd/outboxworks.git"
-                   },
-    "keywords":  [
-
-                 ],
-    "author":  "",
-    "license":  "MIT",
-    "type":  "module",
-    "bugs":  {
-                 "url":  "https://github.com/tracolerd/outboxworks/issues"
-             },
-    "homepage":  "https://github.com/tracolerd/outboxworks#readme",
-    "devDependencies":  {
-                            "@types/express":  "^5.0.6",
-                            "@types/node":  "^26.6.5",
-                            "@types/pg":  "^8.23.1",
-                            "tsx":  "^4.23.15",
-                            "typescript":  "^7.0.2"
-                        },
-    "dependencies":  {
-                         "dotenv":  "^18.0.9",
-                         "express":  "^5.3.0",
-                         "ipaddr.js":  "^2.5.0",
-                         "pg":  "^8.23.1",
-                         "zod":  "^4.6.7"
-                     }
+{
+  "name": "outboxworks",
+  "version": "1.0.0",
+  "description": "Webhook delivery MVP with idempotent enqueueing, signed requests, retries, and dead-letter handling.",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "tsx --test src/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "worker:dev": "tsx src/worker.ts",
+    "start": "node dist/server.js",
+    "start:dev": "tsx src/server.ts",
+    "worker": "node dist/worker.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tracolerd/outboxworks.git"
+  },
+  "keywords": [
+    "webhooks",
+    "event-delivery",
+    "postgresql",
+    "typescript",
+    "reliability"
+  ],
+  "author": "Nurul Faiyaz",
+  "license": "MIT",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/tracolerd/outboxworks/issues"
+  },
+  "homepage": "https://github.com/tracolerd/outboxworks#readme",
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "ipaddr.js": "^2.5.0",
+    "pg": "^8.23.1",
+    "zod": "^4.6.7"
+  }
 }
