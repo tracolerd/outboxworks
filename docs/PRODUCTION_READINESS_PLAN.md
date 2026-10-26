@@ -33,3 +33,8 @@
 - [x] Applied AES-256-GCM authenticated encryption at rest for endpoint secrets.
 - [x] Added ENCRYPTION_KEY validation and separated it from the database.
 - [x] Redacted secrets from GET endpoints.
+## Phase 4: SSRF and Outbound Network Security
+- [x] Enforced SSRF security policy at the actual outbound connection boundary.
+- [x] Replaced etch with http.request using a custom dns.lookup to prevent DNS rebinding attacks.
+- [x] Ensured redirects are explicitly blocked during webhook delivery.
+- [x] Fixed API integration tests 401 Unauthorized issues.
