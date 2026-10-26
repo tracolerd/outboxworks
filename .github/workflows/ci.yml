@@ -12,7 +12,7 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-ci-only
           POSTGRES_DB: outboxworks
         ports:
           - 5432:5432
@@ -45,7 +45,7 @@ jobs:
           DB_HOST: localhost
           DB_PORT: 5432
           DB_USER: postgres
-          DB_PASSWORD: postgres
+          DB_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-ci-only
           DB_NAME: outboxworks
         run: |
           npx tsx src/migrate.ts
