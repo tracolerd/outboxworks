@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="360" viewBox="0 0 1440 360" role="img" aria-labelledby="title desc">
+  <title id="title">OutboxWorks — Reliable Webhook Delivery</title>
+  <desc id="desc">A dark teal technical banner showing an event moving through a durable queue into monitored webhook delivery.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#081521"/>
+      <stop offset="0.52" stop-color="#0b2530"/>
+      <stop offset="1" stop-color="#101827"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2dd4bf"/>
+      <stop offset="1" stop-color="#60a5fa"/>
+    </linearGradient>
+    <radialGradient id="glow">
+      <stop offset="0" stop-color="#0f766e" stop-opacity=".48"/>
+      <stop offset="1" stop-color="#0f766e" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#94a3b8" stroke-opacity=".09" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect width="1440" height="360" rx="24" fill="url(#bg)"/>
+  <rect width="1440" height="360" rx="24" fill="url(#grid)"/>
+  <ellipse cx="1090" cy="158" rx="420" ry="300" fill="url(#glow)"/>
+  <path d="M0 300C220 240 330 358 560 295S880 216 1080 282s244 52 360-2" fill="none" stroke="#2dd4bf" stroke-opacity=".22" stroke-width="2"/>
+  <path d="M0 320C230 260 345 378 590 315s332-68 518-12 230 44 332 5" fill="none" stroke="#60a5fa" stroke-opacity=".14" stroke-width="2"/>
+  <g transform="translate(78 64)">
+    <rect width="210" height="30" rx="15" fill="#0f766e" fill-opacity=".28" stroke="#2dd4bf" stroke-opacity=".55"/>
+    <circle cx="16" cy="15" r="4" fill="#5eead4"/>
+    <text x="30" y="20" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="12" font-weight="700" letter-spacing="1.8" fill="#a7f3d0">EVENT DELIVERY SYSTEMS</text>
+    <text x="0" y="105" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="62" font-weight="800" letter-spacing="-2" fill="#f8fafc">OutboxWorks</text>
+    <rect x="1" y="125" width="116" height="4" rx="2" fill="url(#accent)"/>
+    <text x="0" y="166" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="22" font-weight="500" fill="#cbd5e1">Durable events. Observable retries.</text>
+    <text x="0" y="198" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="22" font-weight="500" fill="#cbd5e1">Explicit failure states.</text>
+  </g>
+  <g transform="translate(850 70)" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="0" y="55" width="130" height="104" rx="15" fill="#102a3a" stroke="#3b82f6" stroke-opacity=".72" stroke-width="1.5"/>
+    <path d="M28 82h74M28 100h50M28 118h62" stroke="#93c5fd" stroke-width="4" opacity=".85"/>
+    <text x="65" y="184" text-anchor="middle" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="13" font-weight="700" fill="#bfdbfe">EVENT</text>
+    <path d="M146 108h52" stroke="#5eead4" stroke-width="3"/>
+    <path d="m188 98 12 10-12 10" fill="none" stroke="#5eead4" stroke-width="3"/>
+    <rect x="212" y="34" width="132" height="145" rx="15" fill="#0b332f" stroke="#2dd4bf" stroke-width="1.5"/>
+    <g fill="#115e59" stroke="#5eead4" stroke-opacity=".7">
+      <rect x="230" y="54" width="96" height="25" rx="6"/>
+      <rect x="230" y="88" width="96" height="25" rx="6"/>
+      <rect x="230" y="122" width="96" height="25" rx="6"/>
+    </g>
+    <g fill="#ccfbf1" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="11" font-weight="700" text-anchor="middle">
+      <text x="278" y="70">PENDING</text>
+      <text x="278" y="104">RETRY</text>
+      <text x="278" y="138">HISTORY</text>
+    </g>
+    <text x="278" y="204" text-anchor="middle" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="13" font-weight="700" fill="#99f6e4">DURABLE QUEUE</text>
+    <path d="M360 108h47" stroke="#5eead4" stroke-width="3"/>
+    <path d="m397 98 12 10-12 10" fill="none" stroke="#5eead4" stroke-width="3"/>
+    <rect x="422" y="55" width="120" height="104" rx="15" fill="#172438" stroke="#a78bfa" stroke-opacity=".8" stroke-width="1.5"/>
+    <circle cx="482" cy="94" r="20" fill="#312e81" stroke="#c4b5fd" stroke-width="1.5"/>
+    <path d="M472 94l7 7 14-16" fill="none" stroke="#ddd6fe" stroke-width="3"/>
+    <path d="M458 124h48" stroke="#a78bfa" stroke-width="4"/>
+    <text x="482" y="184" text-anchor="middle" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="13" font-weight="700" fill="#ddd6fe">WEBHOOK</text>
+    <g fill="#5eead4">
+      <circle cx="33" cy="23" r="3"/><circle cx="302" cy="18" r="3"/><circle cx="506" cy="22" r="3"/>
+    </g>
+    <path d="M32 23H304M304 23H506" stroke="#2dd4bf" stroke-opacity=".25" stroke-dasharray="4 8" stroke-width="1.5"/>
+  </g>
+  <text x="1360" y="330" text-anchor="end" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="12" letter-spacing="2" fill="#64748b">NODE.JS · TYPESCRIPT · POSTGRESQL</text>
+</svg>
