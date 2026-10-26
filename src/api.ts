@@ -13,7 +13,7 @@ const createEndpointSchema = z.object({
 });
 const createEventSchema = z.object({
   endpoint_id: z.string().uuid(),
-  payload: z.record(z.any()),
+  payload: z.record(z.string(), z.any()),
   idempotency_key: z.string().min(1),
 });
 // --- Existing POST Routes ---
@@ -28,7 +28,7 @@ app.post('/endpoints', async (req, res) => {
     const result = await pool.query('INSERT INTO endpoints (url, secret) VALUES ($1, $2) RETURNING id', [url, secret]);
     res.status(201).json({ id: result.rows[0].id, url });
   } catch (error) {
-    if (error instanceof z.ZodError) res.status(400).json({ error: error.errors });
+    if (error instanceof z.ZodError) res.status(400).json({ error: error.issues });
     else res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -62,7 +62,7 @@ app.post('/events', async (req, res) => {
       client.release();
     }
   } catch (error) {
-    if (error instanceof z.ZodError) res.status(400).json({ error: error.errors });
+    if (error instanceof z.ZodError) res.status(400).json({ error: error.issues });
     else res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -115,3 +115,4 @@ app.get('/api/deliveries', async (req, res) => {
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
+
