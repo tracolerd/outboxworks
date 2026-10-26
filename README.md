@@ -413,7 +413,6 @@ Use synthetic payloads and development-only credentials. Restrict access to the 
 │   ├── migrate.test.ts
 │   ├── sender.ts
 │   ├── server.ts
-│   ├── schema.sql
 │   ├── signer.ts
 │   ├── signer.test.ts
 │   ├── ssrf.ts
