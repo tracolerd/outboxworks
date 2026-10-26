@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OutboxWorks Dashboard</title>
+  <title>OutboxWorks Monitoring Dashboard</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f3f4f6; margin: 0; padding: 20px; color: #1f2937; }
     h1 { text-align: center; color: #111827; }
@@ -19,52 +19,107 @@
     .status-DELIVERED { background-color: #d1fae5; color: #065f46; }
     .status-DEAD_LETTERED { background-color: #fee2e2; color: #991b1b; }
     .status-SCHEDULED { background-color: #e0e7ff; color: #3730a3; }
-    .refresh-btn { display: block; margin: 0 auto 20px; padding: 10px 20px; background-color: #4f46e5; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1rem; }
+    .status-IN_PROGRESS { background-color: #e5e7eb; color: #374151; }
+    .controls { max-width: 400px; margin: 0 auto 20px; display: flex; gap: 10px; }
+    input[type="password"] { flex: 1; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 1rem; }
+    .refresh-btn { padding: 10px 20px; background-color: #4f46e5; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1rem; }
     .refresh-btn:hover { background-color: #4338ca; }
+    .error-msg { color: #dc2626; text-align: center; font-weight: 500; margin-bottom: 10px; }
   </style>
 </head>
 <body>
   <h1>📦 OutboxWorks Monitoring</h1>
-  <input type="password" id="adminToken" placeholder="Enter Admin Secret" style="display:block;margin:0 auto 10px;padding:8px;" /><button class="refresh-btn" onclick="loadData()">Refresh Data</button>
+  <div class="controls">
+    <input type="password" id="adminToken" placeholder="Enter Admin Secret Token" />
+    <button class="refresh-btn" onclick="loadData()">Load Data</button>
+  </div>
+  <div id="errorContainer" class="error-msg"></div>
   <div class="container">
     <div class="card">
       <h2>Registered Endpoints</h2>
       <table>
         <thead><tr><th>URL</th><th>Created At</th></tr></thead>
-        <tbody id="endpoints-body"><tr><td colspan="2">Loading...</td></tr></tbody>
+        <tbody id="endpoints-body"><tr><td colspan="2">Please enter token and load data.</td></tr></tbody>
       </table>
     </div>
     <div class="card">
       <h2>Recent Deliveries</h2>
       <table>
         <thead><tr><th>Status</th><th>URL</th><th>Attempts</th><th>Last Updated</th></tr></thead>
-        <tbody id="deliveries-body"><tr><td colspan="4">Loading...</td></tr></tbody>
+        <tbody id="deliveries-body"><tr><td colspan="4">Please enter token and load data.</td></tr></tbody>
       </table>
     </div>
   </div>
   <script>
     async function loadData() {
+      const token = document.getElementById('adminToken').value.trim();
+      const errBox = document.getElementById('errorContainer');
+      errBox.textContent = '';
+      if (!token) {
+        errBox.textContent = 'Admin token is required.';
+        return;
+      }
+      const headers = { 'Authorization': 'Bearer ' + token };
       try {
-        const [epRes, delRes] = await Promise.all([ fetch('/api/endpoints'), fetch('/api/deliveries') ]);
+        const [epRes, delRes] = await Promise.all([
+          fetch('/api/endpoints', { headers }),
+          fetch('/api/deliveries', { headers })
+        ]);
+        if (epRes.status === 401 || delRes.status === 401) {
+          errBox.textContent = 'Unauthorized: Invalid Admin Secret Token.';
+          return;
+        }
+        if (!epRes.ok || !delRes.ok) {
+          throw new Error('Failed to fetch monitoring data.');
+        }
         const endpoints = await epRes.json();
         const deliveries = await delRes.json();
+        // Safe DOM Rendering (Preventing XSS)
         const epBody = document.getElementById('endpoints-body');
-        epBody.innerHTML = endpoints.map(ep => `<tr><td>${ep.url}</td><td>${new Date(ep.created_at).toLocaleString()}</td></tr>`).join('');
-        if(endpoints.length === 0) epBody.innerHTML = '<tr><td colspan="2">No endpoints found.</td></tr>';
+        epBody.innerHTML = '';
+        if (endpoints.length === 0) {
+          epBody.innerHTML = '<tr><td colspan="2">No endpoints found.</td></tr>';
+        } else {
+          endpoints.forEach(ep => {
+            const tr = document.createElement('tr');
+            const tdUrl = document.createElement('td');
+            tdUrl.textContent = ep.url; // Safe text rendering
+            const tdDate = document.createElement('td');
+            tdDate.textContent = new Date(ep.created_at).toLocaleString();
+            tr.appendChild(tdUrl);
+            tr.appendChild(tdDate);
+            epBody.appendChild(tr);
+          });
+        }
         const delBody = document.getElementById('deliveries-body');
-        delBody.innerHTML = deliveries.map(d => `<tr>
-          <td><span class="badge status-${d.status}">${d.status}</span></td>
-          <td>${d.url}</td>
-          <td>${d.attempt_count}</td>
-          <td>${new Date(d.updated_at).toLocaleString()}</td>
-        </tr>`).join('');
-        if(deliveries.length === 0) delBody.innerHTML = '<tr><td colspan="4">No deliveries found.</td></tr>';
+        delBody.innerHTML = '';
+        if (deliveries.length === 0) {
+          delBody.innerHTML = '<tr><td colspan="4">No deliveries found.</td></tr>';
+        } else {
+          deliveries.forEach(d => {
+            const tr = document.createElement('tr');
+            const tdStatus = document.createElement('td');
+            const badge = document.createElement('span');
+            badge.className = `badge status-${d.status}`;
+            badge.textContent = d.status;
+            tdStatus.appendChild(badge);
+            const tdUrl = document.createElement('td');
+            tdUrl.textContent = d.url; // Safe text rendering
+            const tdAttempts = document.createElement('td');
+            tdAttempts.textContent = d.attempt_count;
+            const tdDate = document.createElement('td');
+            tdDate.textContent = new Date(d.updated_at).toLocaleString();
+            tr.appendChild(tdStatus);
+            tr.appendChild(tdUrl);
+            tr.appendChild(tdAttempts);
+            tr.appendChild(tdDate);
+            delBody.appendChild(tr);
+          });
+        }
       } catch (error) {
-        alert('Failed to load data from API.');
+        errBox.textContent = error.message;
       }
     }
-    window.onload = loadData;
   </script>
 </body>
 </html>
-
