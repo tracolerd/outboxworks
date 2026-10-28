@@ -454,3 +454,7 @@ Use synthetic payloads and development-only credentials. Restrict access to the 
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+---
+
+<p align="center"><sub>Portfolio catalog · Project 09 of 22 · <a href="https://github.com/tracolerd">Nurul Faiyaz</a></sub></p>
